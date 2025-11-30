@@ -291,9 +291,181 @@ def api_delete_edge(edge_id):
 
 # ==================== Query ====================
 
+def parse_visualization_intent(query_text: str) -> Dict:
+    """Parse query to extract visualization intent and parameters."""
+    global _nl_edit_model
+
+    prompt = f"""Analyze this query about a knowledge graph and extract both the question intent AND visualization instructions.
+
+Query: "{query_text}"
+
+Return ONLY a JSON object (no markdown) with these fields:
+{{
+    "has_viz_intent": true/false,  // Does user want to SEE/SHOW/VISUALIZE something specific?
+    "has_question": true/false,    // Does user want an ANSWER to something?
+    "focus_entities": ["entity name 1", "entity name 2"],  // Specific entities to focus on (empty if none)
+    "limit": null or number,       // If user specifies a limit like "top 10", "5 most important"
+    "relationship_filter": null or "type",  // Filter to specific relationship types
+    "entity_type_filter": null or ["Person", "Organization"],  // Filter to specific entity types
+    "viz_action": null or "connections" or "path" or "neighborhood" or "timeline" or "filter",
+    "importance_sort": true/false  // Should results be sorted by importance/connections?
+}}
+
+Examples:
+- "Show me the 10 most important connections to Joseph Schuster" -> has_viz_intent: true, focus_entities: ["Joseph Schuster"], limit: 10, importance_sort: true, viz_action: "connections"
+- "What is the dispute about?" -> has_viz_intent: false, has_question: true, focus_entities: []
+- "Who are the main parties and show their relationships" -> has_viz_intent: true, has_question: true, entity_type_filter: ["Organization", "Person"], viz_action: "connections"
+- "Focus on documents mentioning payment" -> has_viz_intent: true, entity_type_filter: ["Document"], focus_entities: []
+- "Show path between CITIOM and Gulfstream" -> has_viz_intent: true, focus_entities: ["CITIOM", "Gulfstream"], viz_action: "path"
+
+JSON response:"""
+
+    try:
+        response = _nl_edit_model.generate_content(prompt)
+        response_text = response.text.strip()
+
+        if response_text.startswith('```'):
+            response_text = re.sub(r'^```(?:json)?\n?', '', response_text)
+            response_text = re.sub(r'\n?```$', '', response_text)
+
+        return json.loads(response_text)
+    except Exception as e:
+        print(f"Error parsing viz intent: {e}")
+        return {
+            "has_viz_intent": False,
+            "has_question": True,
+            "focus_entities": [],
+            "limit": None,
+            "relationship_filter": None,
+            "entity_type_filter": None,
+            "viz_action": None,
+            "importance_sort": False
+        }
+
+
+def build_focused_subgraph(exp: GraphExporter, focus_entities: List[str], limit: int = 20,
+                           importance_sort: bool = True, entity_type_filter: List[str] = None,
+                           viz_action: str = None) -> Dict:
+    """Build a subgraph focused on specific entities."""
+    cursor = exp.conn.cursor()
+
+    # Find the focus entities
+    focus_ids = []
+    for name in focus_entities:
+        cursor.execute('''
+            SELECT id, canonical_name, type FROM entities
+            WHERE canonical_name LIKE ? OR id IN (SELECT entity_id FROM aliases WHERE alias_text LIKE ?)
+            ORDER BY LENGTH(canonical_name)
+            LIMIT 1
+        ''', (f'%{name}%', f'%{name}%'))
+        row = cursor.fetchone()
+        if row:
+            focus_ids.append(row['id'])
+
+    if not focus_ids:
+        return {'nodes': [], 'links': []}
+
+    nodes = []
+    links = []
+    id_to_index = {}
+    seen_edges = set()
+
+    # Get the focus entities first
+    for focus_id in focus_ids:
+        cursor.execute('''
+            SELECT id, canonical_name, type, properties, confidence FROM entities WHERE id = ?
+        ''', (focus_id,))
+        row = cursor.fetchone()
+        if row:
+            idx = len(nodes)
+            id_to_index[row['id']] = idx
+            nodes.append({
+                'id': idx,
+                'entity_id': row['id'],
+                'name': row['canonical_name'][:50],
+                'full_name': row['canonical_name'],
+                'type': row['type'],
+                'color': GraphExporter.TYPE_COLORS.get(row['type'], '#999999'),
+                'confidence': row['confidence'] or 'extracted',
+                'is_focus': True,
+                'connections': 0
+            })
+
+    # Get connected entities, sorted by connection count if importance_sort
+    type_filter_sql = ""
+    if entity_type_filter:
+        placeholders = ','.join(['?' for _ in entity_type_filter])
+        type_filter_sql = f"AND e.type IN ({placeholders})"
+
+    for focus_id in focus_ids:
+        query = f'''
+            SELECT DISTINCT e.id, e.canonical_name, e.type, e.properties, e.confidence,
+                   ed.relation_type, ed.source_entity_id, ed.target_entity_id,
+                   (SELECT COUNT(*) FROM edges WHERE source_entity_id = e.id OR target_entity_id = e.id) as conn_count
+            FROM entities e
+            JOIN edges ed ON (ed.source_entity_id = e.id OR ed.target_entity_id = e.id)
+            WHERE (ed.source_entity_id = ? OR ed.target_entity_id = ?)
+              AND e.id != ?
+              {type_filter_sql}
+            ORDER BY conn_count DESC
+            LIMIT ?
+        '''
+
+        params = [focus_id, focus_id, focus_id]
+        if entity_type_filter:
+            params.extend(entity_type_filter)
+        params.append(limit or 20)
+
+        cursor.execute(query, params)
+
+        for row in cursor.fetchall():
+            entity_id = row['id']
+
+            # Add node if not already added
+            if entity_id not in id_to_index:
+                idx = len(nodes)
+                id_to_index[entity_id] = idx
+                nodes.append({
+                    'id': idx,
+                    'entity_id': entity_id,
+                    'name': row['canonical_name'][:50],
+                    'full_name': row['canonical_name'],
+                    'type': row['type'],
+                    'color': GraphExporter.TYPE_COLORS.get(row['type'], '#999999'),
+                    'confidence': row['confidence'] or 'extracted',
+                    'is_focus': False,
+                    'connections': row['conn_count']
+                })
+
+            # Add edge
+            source_id = row['source_entity_id']
+            target_id = row['target_entity_id']
+
+            if source_id in id_to_index and target_id in id_to_index:
+                edge_key = (id_to_index[source_id], id_to_index[target_id], row['relation_type'])
+                if edge_key not in seen_edges:
+                    seen_edges.add(edge_key)
+                    links.append({
+                        'source': id_to_index[source_id],
+                        'target': id_to_index[target_id],
+                        'relation': row['relation_type']
+                    })
+
+    # Update connection counts for focus nodes
+    for node in nodes:
+        if node.get('is_focus'):
+            cursor.execute('''
+                SELECT COUNT(*) as cnt FROM edges
+                WHERE source_entity_id = ? OR target_entity_id = ?
+            ''', (node['entity_id'], node['entity_id']))
+            node['connections'] = cursor.fetchone()['cnt']
+
+    return {'nodes': nodes, 'links': links}
+
+
 @api.route('/query', methods=['POST'])
 def api_query():
-    """Execute NL query and return results with subgraph."""
+    """Execute NL query and return results with subgraph and visualization instructions."""
     data = request.get_json()
     query_text = data.get('query', '')
 
@@ -301,68 +473,106 @@ def api_query():
         return jsonify({'error': 'No query provided'}), 400
 
     try:
-        kg = get_kg()
-        result = kg.query(query_text)
         exp = get_exporter()
 
-        entity_ids = [e.get('id') for e in result.entities if e.get('id')]
+        # Parse visualization intent
+        viz_intent = parse_visualization_intent(query_text)
 
-        nodes = []
-        id_to_index = {}
+        # Build appropriate response based on intent
+        answer = None
+        subgraph = None
 
-        for i, entity in enumerate(result.entities[:100]):
-            entity_id = entity.get('id')
-            if entity_id:
-                id_to_index[entity_id] = i
-                nodes.append({
-                    'id': i,
-                    'entity_id': entity_id,
-                    'name': entity.get('canonical_name', 'Unknown')[:50],
-                    'full_name': entity.get('canonical_name', 'Unknown'),
-                    'type': entity.get('type', 'Unknown'),
-                    'color': GraphExporter.TYPE_COLORS.get(entity.get('type'), '#999999'),
-                    'properties': entity.get('properties', {})
-                })
+        # If there's a question component, get the answer
+        if viz_intent.get('has_question', True):
+            kg = get_kg()
+            result = kg.query(query_text)
+            answer = result.answer
 
-        links = []
-        seen_links = set()
-        for edge in result.edges[:200]:
-            source_id = edge.get('source_entity_id')
-            target_id = edge.get('target_entity_id')
+            # If no specific viz intent, use standard subgraph from query
+            if not viz_intent.get('has_viz_intent'):
+                entity_ids = [e.get('id') for e in result.entities if e.get('id')]
+                nodes = []
+                id_to_index = {}
 
-            source_idx = id_to_index.get(source_id)
-            target_idx = id_to_index.get(target_id)
+                for i, entity in enumerate(result.entities[:100]):
+                    entity_id = entity.get('id')
+                    if entity_id:
+                        id_to_index[entity_id] = i
+                        nodes.append({
+                            'id': i,
+                            'entity_id': entity_id,
+                            'name': entity.get('canonical_name', 'Unknown')[:50],
+                            'full_name': entity.get('canonical_name', 'Unknown'),
+                            'type': entity.get('type', 'Unknown'),
+                            'color': GraphExporter.TYPE_COLORS.get(entity.get('type'), '#999999'),
+                            'properties': entity.get('properties', {}),
+                            'connections': 0
+                        })
 
-            if source_idx is not None and target_idx is not None:
-                link_key = (source_idx, target_idx, edge.get('relation_type', ''))
-                if link_key not in seen_links:
-                    seen_links.add(link_key)
-                    links.append({
-                        'source': source_idx,
-                        'target': target_idx,
-                        'relation': edge.get('relation_type', 'related_to')
-                    })
+                links = []
+                seen_links = set()
+                for edge in result.edges[:200]:
+                    source_id = edge.get('source_entity_id')
+                    target_id = edge.get('target_entity_id')
+                    source_idx = id_to_index.get(source_id)
+                    target_idx = id_to_index.get(target_id)
 
+                    if source_idx is not None and target_idx is not None:
+                        link_key = (source_idx, target_idx, edge.get('relation_type', ''))
+                        if link_key not in seen_links:
+                            seen_links.add(link_key)
+                            links.append({
+                                'source': source_idx,
+                                'target': target_idx,
+                                'relation': edge.get('relation_type', 'related_to')
+                            })
+
+                subgraph = {'nodes': nodes, 'links': links}
+
+        # If there's a visualization intent, build focused subgraph
+        if viz_intent.get('has_viz_intent') and viz_intent.get('focus_entities'):
+            subgraph = build_focused_subgraph(
+                exp,
+                focus_entities=viz_intent['focus_entities'],
+                limit=viz_intent.get('limit') or 20,
+                importance_sort=viz_intent.get('importance_sort', True),
+                entity_type_filter=viz_intent.get('entity_type_filter'),
+                viz_action=viz_intent.get('viz_action')
+            )
+
+            # If we didn't get an answer yet, generate a brief one
+            if not answer and subgraph['nodes']:
+                focus_names = [n['full_name'] for n in subgraph['nodes'] if n.get('is_focus')]
+                connected_names = [n['full_name'] for n in subgraph['nodes'] if not n.get('is_focus')][:5]
+                answer = f"Showing {len(subgraph['nodes'])} entities connected to {', '.join(focus_names)}. Top connections: {', '.join(connected_names)}."
+
+        # If viz intent but no focus entities, apply filters to current graph
+        elif viz_intent.get('has_viz_intent') and not viz_intent.get('focus_entities'):
+            # Return filter instructions for frontend
+            pass
+
+        # Get facts if available
         facts = []
-        for fact in result.facts[:50]:
-            facts.append({
-                'id': fact.get('id'),
-                'content': fact.get('canonical_name', ''),
-                'type': fact.get('type', 'Fact')
-            })
+        if viz_intent.get('has_question', True):
+            kg = get_kg()
+            result = kg.query(query_text)
+            for fact in result.facts[:50]:
+                facts.append({
+                    'id': fact.get('id'),
+                    'content': fact.get('canonical_name', ''),
+                    'type': fact.get('type', 'Fact')
+                })
 
         return jsonify({
             'query': query_text,
-            'answer': result.answer,
-            'subgraph': {
-                'nodes': nodes,
-                'links': links
-            },
+            'answer': answer or "No specific answer found.",
+            'subgraph': subgraph or {'nodes': [], 'links': []},
             'facts': facts,
+            'viz_intent': viz_intent,
             'stats': {
-                'entities_found': len(result.entities),
-                'edges_found': len(result.edges),
-                'facts_found': len(result.facts)
+                'entities_found': len(subgraph['nodes']) if subgraph else 0,
+                'edges_found': len(subgraph['links']) if subgraph else 0,
+                'facts_found': len(facts)
             }
         })
 

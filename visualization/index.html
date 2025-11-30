@@ -757,6 +757,218 @@
             border: 2px solid;
             background: transparent;
         }
+
+        /* Edge styles */
+        .link {
+            fill: none;
+            stroke-opacity: 0.6;
+            transition: stroke-opacity 0.2s, stroke-width 0.2s;
+        }
+
+        .link:hover {
+            stroke-opacity: 1;
+            stroke-width: 3px !important;
+        }
+
+        .link-label {
+            font-size: 9px;
+            fill: #888;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .link-label.visible {
+            opacity: 1;
+        }
+
+        .link.highlighted {
+            stroke: #4285f4 !important;
+            stroke-opacity: 1;
+            stroke-width: 2.5px;
+        }
+
+        /* Node glow effect */
+        .node-glow {
+            filter: drop-shadow(0 0 8px rgba(66, 133, 244, 0.6));
+        }
+
+        /* Pinned node indicator */
+        .pin-indicator {
+            fill: #ff6d01;
+            font-size: 10px;
+        }
+
+        /* Selection box */
+        .selection-rect {
+            fill: rgba(66, 133, 244, 0.1);
+            stroke: #4285f4;
+            stroke-width: 1;
+            stroke-dasharray: 5, 5;
+        }
+
+        /* Minimap */
+        #minimap {
+            position: absolute;
+            bottom: 80px;
+            right: 20px;
+            width: 180px;
+            height: 120px;
+            background: rgba(22, 33, 62, 0.9);
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        #minimap-viewport {
+            stroke: #4285f4;
+            stroke-width: 2;
+            fill: rgba(66, 133, 244, 0.1);
+        }
+
+        /* Zoom controls */
+        #zoom-controls {
+            position: absolute;
+            bottom: 80px;
+            left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .zoom-btn {
+            width: 36px;
+            height: 36px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            color: #eee;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .zoom-btn:hover {
+            background: #0f3460;
+        }
+
+        /* Keyboard shortcut hints */
+        #shortcut-hint {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(22, 33, 62, 0.9);
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 8px 15px;
+            font-size: 11px;
+            color: #888;
+            display: none;
+        }
+
+        #shortcut-hint.visible {
+            display: block;
+        }
+
+        #shortcut-hint kbd {
+            background: #0f3460;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin: 0 3px;
+            color: #eee;
+        }
+
+        /* Selected node style */
+        .node.selected .main-circle {
+            stroke: #4285f4;
+            stroke-width: 3px;
+        }
+
+        .node.selected .confidence-ring {
+            stroke: #4285f4 !important;
+            stroke-width: 3px;
+        }
+
+        /* Lasso selection */
+        .lasso-path {
+            fill: rgba(66, 133, 244, 0.1);
+            stroke: #4285f4;
+            stroke-width: 2;
+            stroke-dasharray: 5, 5;
+        }
+
+        /* Double-click expansion effect */
+        .expansion-ring {
+            fill: none;
+            stroke: #4285f4;
+            stroke-width: 2;
+            opacity: 0;
+        }
+
+        /* Analytics panel */
+        #analytics-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 12px;
+            padding: 25px;
+            min-width: 600px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 2000;
+            display: none;
+        }
+
+        #analytics-panel.active {
+            display: block;
+        }
+
+        .analytics-chart {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .analytics-bar {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+        }
+
+        .analytics-bar-label {
+            width: 120px;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .analytics-bar-track {
+            flex: 1;
+            height: 20px;
+            background: #0f3460;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .analytics-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+
+        .analytics-bar-value {
+            width: 60px;
+            text-align: right;
+            font-size: 12px;
+            color: #eee;
+        }
     </style>
 </head>
 <body>
@@ -888,6 +1100,14 @@
                     <option value="radial">Radial</option>
                     <option value="hierarchical">Hierarchical</option>
                 </select>
+                <div id="node-limit-control" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #0f3460;">
+                    <label>Showing</label>
+                    <div id="node-limit-display" style="font-size: 12px; color: #4285f4; margin: 5px 0;">50 nodes</div>
+                    <div style="display: flex; gap: 5px; margin-top: 5px;">
+                        <button class="zoom-btn" id="btn-load-more" title="Load more nodes" style="font-size: 11px; width: auto; padding: 5px 8px;">+50</button>
+                        <button class="zoom-btn" id="btn-load-all" title="Load all nodes" style="font-size: 11px; width: auto; padding: 5px 8px;">All</button>
+                    </div>
+                </div>
             </div>
 
             <div id="legend">
@@ -904,6 +1124,25 @@
                     <div class="legend-ring" style="border-color: #ea4335;"></div>
                     <span>Inferred</span>
                 </div>
+            </div>
+
+            <svg id="minimap"></svg>
+
+            <div id="zoom-controls">
+                <button class="zoom-btn" id="zoom-in" title="Zoom In">+</button>
+                <button class="zoom-btn" id="zoom-out" title="Zoom Out">−</button>
+                <button class="zoom-btn" id="zoom-fit" title="Fit to Screen">⊡</button>
+            </div>
+
+            <div id="shortcut-hint">
+                <kbd>?</kbd> shortcuts
+                <kbd>R</kbd> reset
+                <kbd>C</kbd> center
+                <kbd>F</kbd> fit
+                <kbd>L</kbd> labels
+                <kbd>P</kbd> pin
+                <kbd>Del</kbd> delete
+                <kbd>Esc</kbd> deselect
             </div>
         </div>
 
@@ -925,10 +1164,17 @@
         let queryGraphData = null;
         let currentView = 'full';
         let simulation = null;
-        let svg, g, link, node;
+        let svg, g, link, linkLabel, node;
         let activeFilters = new Set();
         let showFacts = false;
         let zoom;
+        let showEdgeLabels = false;
+        let selectedNodes = new Set();
+        let pinnedNodes = new Set();
+        let minimapSvg, minimapG, minimapViewport;
+        let currentTransform = d3.zoomIdentity;
+        let currentNodeLimit = 50;
+        let totalAvailableNodes = 0;
 
         // Type colors
         const TYPE_COLORS = {
@@ -955,12 +1201,16 @@
         // Initialize
         async function init() {
             try {
-                // Load full graph (exclude facts initially for faster load)
-                const response = await fetch(`${API_BASE}/api/graph?include_facts=false&limit=500`);
+                // Load full graph (exclude facts initially, limit to 50 nodes for performance)
+                const response = await fetch(`${API_BASE}/api/graph?include_facts=false&limit=${currentNodeLimit}`);
                 fullGraphData = await response.json();
+
+                // Track total available nodes
+                totalAvailableNodes = Object.values(fullGraphData.stats.full_entity_counts || {}).reduce((a, b) => a + b, 0);
 
                 // Update stats
                 document.getElementById('stat-docs').textContent = fullGraphData.stats.total_documents || '-';
+                updateNodeLimitDisplay();
 
                 // Create type filters
                 createTypeFilters();
@@ -982,6 +1232,65 @@
                     <div style="color: #ea4335;">Error loading graph</div>
                     <div style="margin-top: 10px; font-size: 12px;">${error.message}</div>
                 `;
+            }
+        }
+
+        // Update node limit display
+        function updateNodeLimitDisplay() {
+            const display = document.getElementById('node-limit-display');
+            const loadMoreBtn = document.getElementById('btn-load-more');
+            const loadAllBtn = document.getElementById('btn-load-all');
+
+            const currentCount = fullGraphData ? fullGraphData.nodes.length : 0;
+
+            if (currentCount >= totalAvailableNodes) {
+                display.textContent = `${currentCount} nodes (all)`;
+                display.style.color = '#34a853';
+                loadMoreBtn.style.display = 'none';
+                loadAllBtn.style.display = 'none';
+            } else {
+                display.textContent = `${currentCount} of ${totalAvailableNodes} nodes`;
+                display.style.color = '#4285f4';
+                loadMoreBtn.style.display = 'inline-flex';
+                loadAllBtn.style.display = 'inline-flex';
+            }
+        }
+
+        // Load more nodes
+        async function loadMoreNodes(additionalCount) {
+            const btn = additionalCount ? document.getElementById('btn-load-more') : document.getElementById('btn-load-all');
+            const originalText = btn.textContent;
+
+            btn.textContent = '...';
+            btn.disabled = true;
+
+            try {
+                if (additionalCount) {
+                    currentNodeLimit += additionalCount;
+                } else {
+                    // Load all
+                    currentNodeLimit = 10000;
+                }
+
+                showNotification(`Loading ${additionalCount ? additionalCount + ' more' : 'all'} nodes...`);
+
+                const response = await fetch(`${API_BASE}/api/graph?include_facts=${showFacts}&limit=${currentNodeLimit}`);
+                fullGraphData = await response.json();
+
+                // Recalculate total if needed
+                totalAvailableNodes = Object.values(fullGraphData.stats.full_entity_counts || {}).reduce((a, b) => a + b, 0);
+
+                updateNodeLimitDisplay();
+                updateGraph();
+
+                showNotification(`Loaded ${fullGraphData.nodes.length} nodes`);
+
+            } catch (error) {
+                console.error('Error loading more nodes:', error);
+                showNotification('Failed to load more nodes');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
             }
         }
 
@@ -1035,11 +1344,19 @@
             zoom = d3.zoom()
                 .scaleExtent([0.1, 4])
                 .on('zoom', (event) => {
+                    currentTransform = event.transform;
                     g.attr('transform', event.transform);
+                    updateMinimap();
                 });
 
             svg.call(zoom);
             g = svg.append('g');
+
+            // Initialize minimap
+            initMinimap();
+
+            // Lasso selection (Shift+drag)
+            setupLassoSelection();
 
             // Arrow marker
             svg.append('defs').append('marker')
@@ -1054,12 +1371,41 @@
                 .attr('d', 'M 0,-5 L 10,0 L 0,5')
                 .attr('fill', '#444');
 
-            // Simulation
+            // Simulation with enhanced physics - spacious layout
             simulation = d3.forceSimulation()
-                .force('link', d3.forceLink().id(d => d.id).distance(80))
-                .force('charge', d3.forceManyBody().strength(-200))
+                .force('link', d3.forceLink().id(d => d.id)
+                    .distance(d => {
+                        // Much larger distances for better spacing
+                        const sourceConn = d.source.connections || 1;
+                        const targetConn = d.target.connections || 1;
+                        const avgConn = (sourceConn + targetConn) / 2;
+                        return 150 + Math.min(avgConn * 15, 200);
+                    })
+                    .strength(d => {
+                        // Weaker links allow more spreading
+                        const sourceConn = d.source.connections || 1;
+                        const targetConn = d.target.connections || 1;
+                        return 0.3 / Math.min(sourceConn, targetConn);
+                    }))
+                .force('charge', d3.forceManyBody()
+                    .strength(d => {
+                        // Much stronger repulsion for more spacing
+                        const conn = d.connections || 1;
+                        return -400 - (conn * 50);
+                    })
+                    .distanceMax(800))
                 .force('center', d3.forceCenter(width / 2, height / 2))
-                .force('collision', d3.forceCollide().radius(25));
+                .force('collision', d3.forceCollide()
+                    .radius(d => {
+                        // Larger collision radius
+                        const conn = d.connections || 1;
+                        return Math.min(12 + Math.sqrt(conn) * 4, 40) + 40;
+                    })
+                    .strength(1))
+                .force('x', d3.forceX(width / 2).strength(0.015))
+                .force('y', d3.forceY(height / 2).strength(0.015))
+                .velocityDecay(0.3)
+                .alphaDecay(0.015);
 
             updateGraph();
 
@@ -1094,19 +1440,44 @@
             document.getElementById('stat-nodes').textContent = filteredNodes.length.toLocaleString();
             document.getElementById('stat-links').textContent = filteredLinks.length.toLocaleString();
 
-            // Links
+            // Links - using curved paths
             link = g.selectAll('.link')
                 .data(filteredLinks, d => `${d.source.id ?? d.source}-${d.target.id ?? d.target}-${d.relation}`);
 
             link.exit().remove();
 
-            const linkEnter = link.enter().append('line')
+            const linkEnter = link.enter().append('path')
                 .attr('class', 'link')
-                .attr('stroke', '#333')
-                .attr('stroke-width', 1)
-                .attr('marker-end', 'url(#arrowhead)');
+                .attr('stroke', '#444')
+                .attr('stroke-width', d => {
+                    // Thicker edges for more important relationships
+                    const relationImportance = {
+                        'party_to': 2, 'signatory_of': 2, 'owns': 1.8,
+                        'related_to': 1.5, 'mentioned_in': 1, 'references': 1
+                    };
+                    return relationImportance[d.relation] || 1.2;
+                })
+                .attr('marker-end', 'url(#arrowhead)')
+                .on('mouseenter', handleLinkMouseOver)
+                .on('mouseleave', handleLinkMouseOut)
+                .on('click', handleLinkClick);
 
             link = linkEnter.merge(link);
+
+            // Link labels
+            linkLabel = g.selectAll('.link-label')
+                .data(filteredLinks, d => `label-${d.source.id ?? d.source}-${d.target.id ?? d.target}-${d.relation}`);
+
+            linkLabel.exit().remove();
+
+            const linkLabelEnter = linkLabel.enter().append('text')
+                .attr('class', 'link-label')
+                .attr('text-anchor', 'middle')
+                .attr('dy', -5)
+                .text(d => d.relation ? d.relation.replace(/_/g, ' ') : '');
+
+            linkLabel = linkLabelEnter.merge(linkLabel);
+            linkLabel.classed('visible', showEdgeLabels);
 
             // Nodes
             node = g.selectAll('.node')
@@ -1158,6 +1529,7 @@
             node.on('mouseover', handleMouseOver)
                 .on('mouseout', handleMouseOut)
                 .on('click', handleClick)
+                .on('dblclick', handleDoubleClick)
                 .on('contextmenu', (event, d) => {
                     event.preventDefault();
                     showEditModal(d);
@@ -1169,50 +1541,253 @@
             simulation.alpha(1).restart();
 
             simulation.on('tick', () => {
-                link
-                    .attr('x1', d => d.source.x)
-                    .attr('y1', d => d.source.y)
-                    .attr('x2', d => d.target.x)
-                    .attr('y2', d => d.target.y);
+                // Draw curved paths for links
+                link.attr('d', d => {
+                    const dx = d.target.x - d.source.x;
+                    const dy = d.target.y - d.source.y;
+                    const dr = Math.sqrt(dx * dx + dy * dy) * 1.5; // Curve radius
+
+                    // Calculate endpoint offset to stop at node edge
+                    const targetRadius = Math.min(6 + Math.sqrt(d.target.connections || 1) * 1.5, 20) + 5;
+                    const angle = Math.atan2(dy, dx);
+                    const targetX = d.target.x - Math.cos(angle) * targetRadius;
+                    const targetY = d.target.y - Math.sin(angle) * targetRadius;
+
+                    // Check for parallel links and curve them differently
+                    const parallelIndex = d._parallelIndex || 0;
+                    const curveDir = parallelIndex % 2 === 0 ? 1 : -1;
+
+                    if (dr > 200) {
+                        // For longer links, use a gentle curve
+                        return `M${d.source.x},${d.source.y}Q${(d.source.x + targetX) / 2 + curveDir * 20},${(d.source.y + targetY) / 2 + curveDir * 20} ${targetX},${targetY}`;
+                    } else {
+                        // For shorter links, use an arc
+                        return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,${curveDir > 0 ? 1 : 0} ${targetX},${targetY}`;
+                    }
+                });
+
+                // Position link labels at midpoint of curve
+                linkLabel
+                    .attr('x', d => (d.source.x + d.target.x) / 2)
+                    .attr('y', d => (d.source.y + d.target.y) / 2);
 
                 node.attr('transform', d => `translate(${d.x},${d.y})`);
+
+                // Apply label collision avoidance
+                applyLabelCollisionAvoidance();
+
+                // Update minimap
+                updateMinimap();
             });
         }
 
         function handleMouseOver(event, d) {
             const tooltip = document.getElementById('tooltip');
             tooltip.querySelector('#tooltip-name').textContent = d.full_name || d.name;
-            tooltip.querySelector('#tooltip-type').textContent = `${d.type}${d.connections ? ` - ${d.connections} connections` : ''}`;
+            tooltip.querySelector('#tooltip-type').textContent = `${d.type}${d.connections ? ` · ${d.connections} connections` : ''}${pinnedNodes.has(d.id) ? ' · Pinned' : ''}`;
             tooltip.style.left = (event.pageX + 15) + 'px';
             tooltip.style.top = (event.pageY - 10) + 'px';
             tooltip.classList.add('active');
 
-            // Highlight
+            // Highlight connected nodes and paths
             const data = getCurrentData();
             const connectedIds = new Set();
+            const connectedLinks = new Set();
+
             data.links.forEach(l => {
                 const sourceId = l.source.id ?? l.source;
                 const targetId = l.target.id ?? l.target;
-                if (sourceId === d.id) connectedIds.add(targetId);
-                if (targetId === d.id) connectedIds.add(sourceId);
+                if (sourceId === d.id) {
+                    connectedIds.add(targetId);
+                    connectedLinks.add(`${sourceId}-${targetId}-${l.relation}`);
+                }
+                if (targetId === d.id) {
+                    connectedIds.add(sourceId);
+                    connectedLinks.add(`${sourceId}-${targetId}-${l.relation}`);
+                }
             });
 
-            node.style('opacity', n => connectedIds.has(n.id) || n.id === d.id ? 1 : 0.15);
+            // Apply glow to hovered node
+            d3.select(event.currentTarget).classed('node-glow', true);
+
+            // Fade non-connected nodes
+            node.style('opacity', n => connectedIds.has(n.id) || n.id === d.id ? 1 : 0.15)
+                .select('.main-circle')
+                .attr('stroke-width', n => n.id === d.id ? 3 : 1);
+
+            // Highlight connected edges
             link.style('opacity', l => {
                 const sourceId = l.source.id ?? l.source;
                 const targetId = l.target.id ?? l.target;
                 return sourceId === d.id || targetId === d.id ? 1 : 0.05;
+            }).style('stroke', l => {
+                const sourceId = l.source.id ?? l.source;
+                const targetId = l.target.id ?? l.target;
+                return sourceId === d.id || targetId === d.id ? '#4285f4' : '#444';
+            });
+
+            // Show labels for connected edges
+            linkLabel.classed('visible', l => {
+                const sourceId = l.source.id ?? l.source;
+                const targetId = l.target.id ?? l.target;
+                return showEdgeLabels || sourceId === d.id || targetId === d.id;
             });
         }
 
-        function handleMouseOut() {
+        function handleMouseOut(event, d) {
             document.getElementById('tooltip').classList.remove('active');
-            node.style('opacity', 1);
-            link.style('opacity', 1);
+
+            // Remove glow
+            d3.select(event.currentTarget).classed('node-glow', false);
+
+            // Reset styles
+            node.style('opacity', 1)
+                .select('.main-circle')
+                .attr('stroke-width', 1);
+
+            link.style('opacity', 0.6)
+                .style('stroke', '#444');
+
+            linkLabel.classed('visible', showEdgeLabels);
+        }
+
+        // Link hover handlers
+        function handleLinkMouseOver(event, d) {
+            d3.select(event.currentTarget)
+                .style('stroke', '#4285f4')
+                .style('stroke-opacity', 1)
+                .style('stroke-width', 3);
+
+            // Show this link's label
+            linkLabel.filter(l => l === d).classed('visible', true);
+
+            // Show tooltip for the relationship
+            const tooltip = document.getElementById('tooltip');
+            const sourceName = d.source.name || d.source;
+            const targetName = d.target.name || d.target;
+            tooltip.querySelector('#tooltip-name').textContent = d.relation ? d.relation.replace(/_/g, ' ') : 'relationship';
+            tooltip.querySelector('#tooltip-type').textContent = `${sourceName} → ${targetName}`;
+            tooltip.style.left = (event.pageX + 15) + 'px';
+            tooltip.style.top = (event.pageY - 10) + 'px';
+            tooltip.classList.add('active');
+        }
+
+        function handleLinkMouseOut(event, d) {
+            d3.select(event.currentTarget)
+                .style('stroke', '#444')
+                .style('stroke-opacity', 0.6)
+                .style('stroke-width', null);
+
+            linkLabel.filter(l => l === d).classed('visible', showEdgeLabels);
+            document.getElementById('tooltip').classList.remove('active');
+        }
+
+        function handleLinkClick(event, d) {
+            event.stopPropagation();
+
+            // Show relationship details in a modal or sidebar
+            const modal = document.getElementById('edit-modal');
+            const title = document.getElementById('modal-title');
+            const content = document.getElementById('modal-content');
+
+            const sourceName = d.source.full_name || d.source.name || d.source;
+            const targetName = d.target.full_name || d.target.name || d.target;
+
+            title.textContent = 'Relationship Details';
+            content.innerHTML = `
+                <div style="text-align: center; padding: 20px 0;">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 15px;">
+                        <div style="padding: 10px 15px; background: ${TYPE_COLORS[d.source.type] || '#666'}; border-radius: 8px;">
+                            ${sourceName}
+                        </div>
+                        <div style="color: #4285f4; font-weight: bold;">
+                            → ${d.relation ? d.relation.replace(/_/g, ' ') : 'related'} →
+                        </div>
+                        <div style="padding: 10px 15px; background: ${TYPE_COLORS[d.target.type] || '#666'}; border-radius: 8px;">
+                            ${targetName}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-danger" onclick="deleteEdge('${d.source.entity_id || d.source.id}', '${d.target.entity_id || d.target.id}', '${d.relation}')">Delete Relationship</button>
+                    <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+                </div>
+            `;
+
+            modal.classList.add('active');
+        }
+
+        async function deleteEdge(sourceId, targetId, relation) {
+            if (!confirm('Delete this relationship?')) return;
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/edge`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source_id: sourceId, target_id: targetId, relation })
+                });
+
+                const result = await resp.json();
+                if (result.success) {
+                    closeModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + (result.error || 'Failed to delete'));
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
         }
 
         function handleClick(event, d) {
             showEntityDetails(d);
+        }
+
+        // Double-click to expand neighborhood
+        async function handleDoubleClick(event, d) {
+            event.stopPropagation();
+
+            // Visual feedback - expansion ring animation
+            const nodeElement = d3.select(event.currentTarget);
+            const ring = nodeElement.append('circle')
+                .attr('class', 'expansion-ring')
+                .attr('r', 10)
+                .style('opacity', 1);
+
+            ring.transition()
+                .duration(500)
+                .attr('r', 100)
+                .style('opacity', 0)
+                .remove();
+
+            showNotification(`Loading neighborhood for "${d.name}"...`);
+
+            try {
+                // Fetch entity neighborhood
+                const entityId = d.entity_id || d.id;
+                const resp = await fetch(`${API_BASE}/api/entity/${entityId}?depth=2&max_nodes=50`);
+                const neighborhood = await resp.json();
+
+                if (neighborhood.nodes && neighborhood.nodes.length > 0) {
+                    queryGraphData = neighborhood;
+                    currentView = 'query';
+
+                    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelector('[data-view="query"]').classList.add('active');
+
+                    // Enable all types
+                    Object.keys(TYPE_COLORS).forEach(t => activeFilters.add(t));
+                    updateGraph();
+
+                    setTimeout(() => {
+                        centerGraph();
+                        showNotification(`Expanded: ${neighborhood.nodes.length} nodes, ${neighborhood.links.length} edges`);
+                    }, 300);
+                }
+            } catch (err) {
+                console.error('Failed to load neighborhood:', err);
+                showNotification('Failed to load neighborhood');
+            }
         }
 
         function showEntityDetails(d) {
@@ -1371,7 +1946,14 @@
 
                     // Show answer
                     answerText.innerHTML = result.answer.replace(/\n/g, '<br>');
-                    queryStats.textContent = `Found ${result.stats.entities_found} entities, ${result.stats.edges_found} relations, ${result.stats.facts_found} facts`;
+
+                    // Show viz intent info if present
+                    const vizIntent = result.viz_intent || {};
+                    let statsText = `Found ${result.stats.entities_found} entities, ${result.stats.edges_found} relations`;
+                    if (vizIntent.has_viz_intent) {
+                        statsText += ' • Visualization updated';
+                    }
+                    queryStats.textContent = statsText;
                     answerBox.classList.add('active');
 
                     // Show facts
@@ -1394,7 +1976,31 @@
                         // Enable all types
                         Object.keys(TYPE_COLORS).forEach(t => activeFilters.add(t));
                         updateGraph();
-                        setTimeout(centerGraph, 500);
+
+                        // Handle focus entities highlighting
+                        setTimeout(() => {
+                            centerGraph();
+
+                            // Highlight focus entities if present
+                            if (result.subgraph.nodes.some(n => n.is_focus)) {
+                                highlightFocusEntities(result.subgraph.nodes);
+                            }
+
+                            // Show notification based on viz action
+                            if (vizIntent.has_viz_intent) {
+                                const focusCount = result.subgraph.nodes.filter(n => n.is_focus).length;
+                                const connCount = result.subgraph.nodes.length - focusCount;
+                                if (vizIntent.viz_action === 'connections') {
+                                    showNotification(`Showing ${connCount} connections to ${focusCount} focus ${focusCount === 1 ? 'entity' : 'entities'}`);
+                                } else if (vizIntent.viz_action === 'path') {
+                                    showNotification(`Path view with ${result.subgraph.nodes.length} entities`);
+                                } else {
+                                    showNotification(`Visualization updated: ${result.subgraph.nodes.length} entities`);
+                                }
+                            }
+                        }, 500);
+                    } else if (vizIntent.has_viz_intent && !result.subgraph?.nodes?.length) {
+                        showNotification('No matching entities found for visualization');
                     }
 
                 } catch (error) {
@@ -1484,6 +2090,24 @@
                 applyLayout();
             });
 
+            // Zoom controls
+            document.getElementById('zoom-in').addEventListener('click', () => {
+                svg.transition().duration(300).call(zoom.scaleBy, 1.5);
+            });
+
+            document.getElementById('zoom-out').addEventListener('click', () => {
+                svg.transition().duration(300).call(zoom.scaleBy, 0.67);
+            });
+
+            document.getElementById('zoom-fit').addEventListener('click', centerGraph);
+
+            // Node limit controls
+            document.getElementById('btn-load-more').addEventListener('click', () => loadMoreNodes(50));
+            document.getElementById('btn-load-all').addEventListener('click', () => loadMoreNodes(null));
+
+            // Keyboard shortcuts
+            setupKeyboardShortcuts();
+
             // NL Edit functionality
             setupNLEdit();
 
@@ -1496,8 +2120,469 @@
             // Clusters button
             document.getElementById('btn-clusters').addEventListener('click', showClustersModal);
 
+            // Analytics button
+            document.getElementById('btn-analytics').addEventListener('click', showAnalyticsPanel);
+
+            // Path finder button
+            document.getElementById('btn-path').addEventListener('click', showPathFinderModal);
+
             // Export setup
             setupExport();
+        }
+
+        // ========== KEYBOARD SHORTCUTS ==========
+        function setupKeyboardShortcuts() {
+            const shortcutHint = document.getElementById('shortcut-hint');
+
+            document.addEventListener('keydown', (e) => {
+                // Don't trigger shortcuts when typing in inputs
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                    return;
+                }
+
+                switch (e.key.toLowerCase()) {
+                    case '?':
+                        // Toggle shortcut hints
+                        shortcutHint.classList.toggle('visible');
+                        break;
+
+                    case 'r':
+                        // Reset view
+                        svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity);
+                        break;
+
+                    case 'c':
+                        // Center graph
+                        centerGraph();
+                        break;
+
+                    case 'f':
+                        // Fit to screen (same as center)
+                        centerGraph();
+                        break;
+
+                    case 'l':
+                        // Toggle edge labels
+                        showEdgeLabels = !showEdgeLabels;
+                        linkLabel.classed('visible', showEdgeLabels);
+                        showNotification(`Edge labels ${showEdgeLabels ? 'shown' : 'hidden'}`);
+                        break;
+
+                    case 'p':
+                        // Pin/unpin selected node
+                        if (window._selectedEntity) {
+                            togglePin(window._selectedEntity);
+                        }
+                        break;
+
+                    case 'delete':
+                    case 'backspace':
+                        // Delete selected node (with confirmation)
+                        if (window._selectedEntity && editMode) {
+                            if (confirm(`Delete "${window._selectedEntity.name}"?`)) {
+                                deleteEntity(window._selectedEntity.entity_id);
+                            }
+                        }
+                        break;
+
+                    case 'escape':
+                        // Deselect / close modal
+                        if (document.getElementById('edit-modal').classList.contains('active')) {
+                            closeModal();
+                        } else {
+                            selectedNodes.clear();
+                            window._selectedEntity = null;
+                            document.getElementById('entity-details').classList.remove('active');
+                            node.classed('selected', false);
+                        }
+                        shortcutHint.classList.remove('visible');
+                        break;
+
+                    case 'a':
+                        if (e.ctrlKey || e.metaKey) {
+                            // Select all visible nodes
+                            e.preventDefault();
+                            const data = getCurrentData();
+                            data.nodes.filter(n => activeFilters.has(n.type)).forEach(n => {
+                                selectedNodes.add(n.id);
+                            });
+                            node.classed('selected', d => selectedNodes.has(d.id));
+                            showNotification(`Selected ${selectedNodes.size} nodes`);
+                        }
+                        break;
+
+                    case '+':
+                    case '=':
+                        // Zoom in
+                        svg.transition().duration(300).call(zoom.scaleBy, 1.3);
+                        break;
+
+                    case '-':
+                        // Zoom out
+                        svg.transition().duration(300).call(zoom.scaleBy, 0.77);
+                        break;
+
+                    case '1':
+                        // Force layout
+                        document.getElementById('layout-select').value = 'force';
+                        currentLayout = 'force';
+                        applyLayout();
+                        break;
+
+                    case '2':
+                        // Cluster layout
+                        document.getElementById('layout-select').value = 'cluster';
+                        currentLayout = 'cluster';
+                        applyLayout();
+                        break;
+
+                    case '3':
+                        // Radial layout
+                        document.getElementById('layout-select').value = 'radial';
+                        currentLayout = 'radial';
+                        applyLayout();
+                        break;
+
+                    case '4':
+                        // Hierarchical layout
+                        document.getElementById('layout-select').value = 'hierarchical';
+                        currentLayout = 'hierarchical';
+                        applyLayout();
+                        break;
+                }
+            });
+        }
+
+        // Show notification toast
+        function showNotification(message) {
+            // Create notification element if it doesn't exist
+            let notification = document.getElementById('notification-toast');
+            if (!notification) {
+                notification = document.createElement('div');
+                notification.id = 'notification-toast';
+                notification.style.cssText = `
+                    position: fixed;
+                    bottom: 80px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: #16213e;
+                    border: 1px solid #4285f4;
+                    border-radius: 8px;
+                    padding: 10px 20px;
+                    color: #eee;
+                    font-size: 13px;
+                    z-index: 3000;
+                    opacity: 0;
+                    transition: opacity 0.3s;
+                `;
+                document.body.appendChild(notification);
+            }
+
+            notification.textContent = message;
+            notification.style.opacity = '1';
+
+            setTimeout(() => {
+                notification.style.opacity = '0';
+            }, 2000);
+        }
+
+        // Toggle node pin
+        function togglePin(d) {
+            if (pinnedNodes.has(d.id)) {
+                pinnedNodes.delete(d.id);
+                d.fx = null;
+                d.fy = null;
+                showNotification(`Unpinned "${d.name}"`);
+            } else {
+                pinnedNodes.add(d.id);
+                d.fx = d.x;
+                d.fy = d.y;
+                showNotification(`Pinned "${d.name}"`);
+            }
+
+            // Update pin indicator visual
+            updatePinIndicators();
+            simulation.alpha(0.3).restart();
+        }
+
+        function updatePinIndicators() {
+            // Remove existing pin indicators
+            g.selectAll('.pin-indicator').remove();
+
+            // Add pin indicators for pinned nodes
+            node.filter(d => pinnedNodes.has(d.id))
+                .append('text')
+                .attr('class', 'pin-indicator')
+                .attr('x', -3)
+                .attr('y', -15)
+                .text('📌');
+        }
+
+        // ========== LASSO SELECTION ==========
+        function setupLassoSelection() {
+            let lassoPath = null;
+            let lassoPoints = [];
+            let isLassoing = false;
+
+            svg.on('mousedown.lasso', (event) => {
+                // Only start lasso if Shift is held and not clicking on a node
+                if (!event.shiftKey || event.target.closest('.node')) return;
+
+                isLassoing = true;
+                lassoPoints = [];
+
+                // Get mouse position in SVG coordinates
+                const [x, y] = d3.pointer(event, g.node());
+                lassoPoints.push([x, y]);
+
+                // Create lasso path
+                lassoPath = g.append('path')
+                    .attr('class', 'lasso-path')
+                    .attr('d', `M${x},${y}`);
+
+                event.preventDefault();
+            });
+
+            svg.on('mousemove.lasso', (event) => {
+                if (!isLassoing) return;
+
+                const [x, y] = d3.pointer(event, g.node());
+                lassoPoints.push([x, y]);
+
+                // Update path
+                const pathD = lassoPoints.map((p, i) => (i === 0 ? 'M' : 'L') + p.join(',')).join(' ');
+                lassoPath.attr('d', pathD + ' Z');
+
+                // Highlight nodes inside lasso in real-time
+                highlightNodesInLasso();
+            });
+
+            svg.on('mouseup.lasso', (event) => {
+                if (!isLassoing) return;
+
+                isLassoing = false;
+
+                // Select nodes inside lasso
+                selectNodesInLasso();
+
+                // Remove lasso path
+                if (lassoPath) {
+                    lassoPath.remove();
+                    lassoPath = null;
+                }
+                lassoPoints = [];
+            });
+
+            function highlightNodesInLasso() {
+                if (lassoPoints.length < 3) return;
+
+                node.classed('lasso-highlight', d => {
+                    return pointInPolygon([d.x, d.y], lassoPoints);
+                });
+            }
+
+            function selectNodesInLasso() {
+                if (lassoPoints.length < 3) return;
+
+                // Clear previous selection unless Ctrl is held
+                if (!d3.event?.ctrlKey) {
+                    selectedNodes.clear();
+                }
+
+                // Find nodes inside lasso
+                const data = getCurrentData();
+                let count = 0;
+
+                data.nodes.filter(n => activeFilters.has(n.type)).forEach(d => {
+                    if (pointInPolygon([d.x, d.y], lassoPoints)) {
+                        selectedNodes.add(d.id);
+                        count++;
+                    }
+                });
+
+                // Update visual selection
+                node.classed('selected', d => selectedNodes.has(d.id))
+                    .classed('lasso-highlight', false);
+
+                if (count > 0) {
+                    showNotification(`Selected ${count} nodes`);
+                    showMultiSelectActions();
+                }
+            }
+
+            // Point in polygon test (ray casting algorithm)
+            function pointInPolygon(point, polygon) {
+                const [x, y] = point;
+                let inside = false;
+
+                for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                    const [xi, yi] = polygon[i];
+                    const [xj, yj] = polygon[j];
+
+                    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+                        inside = !inside;
+                    }
+                }
+
+                return inside;
+            }
+        }
+
+        // Show multi-select action buttons
+        function showMultiSelectActions() {
+            if (selectedNodes.size === 0) return;
+
+            const modal = document.getElementById('edit-modal');
+            const title = document.getElementById('modal-title');
+            const content = document.getElementById('modal-content');
+
+            title.textContent = `${selectedNodes.size} Nodes Selected`;
+            content.innerHTML = `
+                <p style="margin-bottom: 15px; color: #888;">Choose an action for the selected nodes:</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <button class="btn btn-secondary" onclick="pinSelectedNodes()">📌 Pin All</button>
+                    <button class="btn btn-secondary" onclick="unpinSelectedNodes()">📍 Unpin All</button>
+                    <button class="btn btn-secondary" onclick="highlightSelectedPaths()">🔗 Show Connections</button>
+                    <button class="btn btn-secondary" onclick="isolateSelected()">👁️ Isolate View</button>
+                    <button class="btn btn-secondary" onclick="exportSelectedNodes()">📤 Export Selected</button>
+                    <button class="btn btn-danger" onclick="deleteSelectedNodes()">🗑️ Delete All</button>
+                </div>
+                <div class="modal-actions" style="margin-top: 20px;">
+                    <button class="btn btn-secondary" onclick="clearSelection()">Clear Selection</button>
+                    <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+                </div>
+            `;
+
+            modal.classList.add('active');
+        }
+
+        function pinSelectedNodes() {
+            const data = getCurrentData();
+            selectedNodes.forEach(id => {
+                const node = data.nodes.find(n => n.id === id);
+                if (node) {
+                    pinnedNodes.add(id);
+                    node.fx = node.x;
+                    node.fy = node.y;
+                }
+            });
+            updatePinIndicators();
+            showNotification(`Pinned ${selectedNodes.size} nodes`);
+            closeModal();
+        }
+
+        function unpinSelectedNodes() {
+            const data = getCurrentData();
+            selectedNodes.forEach(id => {
+                const nodeData = data.nodes.find(n => n.id === id);
+                if (nodeData) {
+                    pinnedNodes.delete(id);
+                    nodeData.fx = null;
+                    nodeData.fy = null;
+                }
+            });
+            updatePinIndicators();
+            simulation.alpha(0.3).restart();
+            showNotification(`Unpinned ${selectedNodes.size} nodes`);
+            closeModal();
+        }
+
+        function highlightSelectedPaths() {
+            // Highlight all edges between selected nodes
+            link.style('stroke', l => {
+                const sourceId = l.source.id ?? l.source;
+                const targetId = l.target.id ?? l.target;
+                return selectedNodes.has(sourceId) && selectedNodes.has(targetId) ? '#4285f4' : '#444';
+            }).style('stroke-width', l => {
+                const sourceId = l.source.id ?? l.source;
+                const targetId = l.target.id ?? l.target;
+                return selectedNodes.has(sourceId) && selectedNodes.has(targetId) ? 3 : 1;
+            });
+            closeModal();
+        }
+
+        function isolateSelected() {
+            // Fade all non-selected nodes
+            node.style('opacity', d => selectedNodes.has(d.id) ? 1 : 0.1);
+            link.style('opacity', l => {
+                const sourceId = l.source.id ?? l.source;
+                const targetId = l.target.id ?? l.target;
+                return selectedNodes.has(sourceId) || selectedNodes.has(targetId) ? 0.6 : 0.05;
+            });
+            closeModal();
+            showNotification('Press Escape to restore view');
+        }
+
+        function exportSelectedNodes() {
+            const data = getCurrentData();
+            const exportData = {
+                nodes: data.nodes.filter(n => selectedNodes.has(n.id)),
+                links: data.links.filter(l => {
+                    const sourceId = l.source.id ?? l.source;
+                    const targetId = l.target.id ?? l.target;
+                    return selectedNodes.has(sourceId) && selectedNodes.has(targetId);
+                })
+            };
+
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            downloadBlob(blob, 'selected_subgraph.json');
+            closeModal();
+        }
+
+        async function deleteSelectedNodes() {
+            if (!confirm(`Delete ${selectedNodes.size} nodes? This cannot be undone.`)) return;
+
+            let deleted = 0;
+            for (const id of selectedNodes) {
+                try {
+                    const resp = await fetch(`${API_BASE}/api/entity/${id}`, { method: 'DELETE' });
+                    const result = await resp.json();
+                    if (result.success) deleted++;
+                } catch (e) {
+                    console.error(`Failed to delete ${id}:`, e);
+                }
+            }
+
+            showNotification(`Deleted ${deleted} of ${selectedNodes.size} nodes`);
+            if (deleted > 0) {
+                setTimeout(() => location.reload(), 1000);
+            }
+            closeModal();
+        }
+
+        function clearSelection() {
+            selectedNodes.clear();
+            node.classed('selected', false);
+            node.style('opacity', 1);
+            link.style('opacity', 0.6).style('stroke', '#444').style('stroke-width', null);
+            closeModal();
+        }
+
+        // Highlight focus entities from query results
+        function highlightFocusEntities(nodesData) {
+            const focusIds = new Set(nodesData.filter(n => n.is_focus).map(n => n.id));
+
+            // Add glow and selection to focus nodes
+            node.classed('node-glow', d => focusIds.has(d.id))
+                .classed('selected', d => focusIds.has(d.id));
+
+            // Make focus nodes slightly larger
+            node.selectAll('.main-circle')
+                .attr('r', d => {
+                    const baseRadius = Math.min(6 + Math.sqrt(d.connections || 1) * 1.5, 20);
+                    return focusIds.has(d.id) ? baseRadius * 1.3 : baseRadius;
+                });
+
+            // Highlight edges connected to focus nodes
+            link.style('stroke', l => {
+                const sourceIsFocus = focusIds.has(l.source.id);
+                const targetIsFocus = focusIds.has(l.target.id);
+                return sourceIsFocus || targetIsFocus ? '#4285f4' : '#444';
+            }).style('stroke-width', l => {
+                const sourceIsFocus = focusIds.has(l.source.id);
+                const targetIsFocus = focusIds.has(l.target.id);
+                return sourceIsFocus || targetIsFocus ? 2 : null;
+            });
         }
 
         // ========== NL EDIT FUNCTIONALITY ==========
@@ -1585,6 +2670,12 @@
             // Get filtered nodes
             const filteredNodes = data.nodes.filter(n => activeFilters.has(n.type));
 
+            // Store old positions for smooth transition
+            const oldPositions = new Map();
+            filteredNodes.forEach(n => {
+                oldPositions.set(n.id, { x: n.x, y: n.y });
+            });
+
             switch (currentLayout) {
                 case 'cluster':
                     applyClusterLayout(filteredNodes, centerX, centerY);
@@ -1597,14 +2688,79 @@
                     break;
                 case 'force':
                 default:
-                    // Reset to force simulation
+                    // Reset to force simulation with smooth transition
                     filteredNodes.forEach(n => {
-                        n.fx = null;
-                        n.fy = null;
+                        if (!pinnedNodes.has(n.id)) {
+                            n.fx = null;
+                            n.fy = null;
+                        }
                     });
                     simulation.alpha(1).restart();
                     break;
             }
+
+            // Animate transition for fixed layouts
+            if (currentLayout !== 'force') {
+                animateLayoutTransition(filteredNodes, oldPositions);
+            }
+
+            showNotification(`Layout: ${currentLayout}`);
+        }
+
+        // Smooth animation between layouts
+        function animateLayoutTransition(nodes, oldPositions, duration = 750) {
+            const startTime = Date.now();
+
+            function animate() {
+                const elapsed = Date.now() - startTime;
+                const t = Math.min(1, elapsed / duration);
+                const easeT = easeInOutCubic(t);
+
+                nodes.forEach(n => {
+                    const old = oldPositions.get(n.id);
+                    if (old && n.fx !== null) {
+                        // Interpolate between old and new position
+                        n.x = old.x + (n.fx - old.x) * easeT;
+                        n.y = old.y + (n.fy - old.y) * easeT;
+                    }
+                });
+
+                // Update visual positions
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+
+                link.attr('d', d => {
+                    const dx = d.target.x - d.source.x;
+                    const dy = d.target.y - d.source.y;
+                    const dr = Math.sqrt(dx * dx + dy * dy) * 1.5;
+                    const targetRadius = Math.min(6 + Math.sqrt(d.target.connections || 1) * 1.5, 20) + 5;
+                    const angle = Math.atan2(dy, dx);
+                    const targetX = d.target.x - Math.cos(angle) * targetRadius;
+                    const targetY = d.target.y - Math.sin(angle) * targetRadius;
+
+                    if (dr > 200) {
+                        return `M${d.source.x},${d.source.y}Q${(d.source.x + targetX) / 2 + 20},${(d.source.y + targetY) / 2 + 20} ${targetX},${targetY}`;
+                    } else {
+                        return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${targetX},${targetY}`;
+                    }
+                });
+
+                linkLabel
+                    .attr('x', d => (d.source.x + d.target.x) / 2)
+                    .attr('y', d => (d.source.y + d.target.y) / 2);
+
+                if (t < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    updateMinimap();
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Easing function for smooth animation
+        function easeInOutCubic(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
         }
 
         function applyClusterLayout(nodes, centerX, centerY) {
@@ -1706,6 +2862,238 @@
                 zoom.transform,
                 d3.zoomIdentity.translate(translate[0], translate[1]).scale(Math.min(scale, 1.5))
             );
+        }
+
+        // ========== LABEL COLLISION AVOIDANCE ==========
+        let labelCollisionThrottle = 0;
+
+        function applyLabelCollisionAvoidance() {
+            // Throttle to avoid performance issues - run every 5 ticks
+            labelCollisionThrottle++;
+            if (labelCollisionThrottle % 5 !== 0) return;
+
+            const labels = [];
+            const labelPadding = 5;
+
+            // Collect all visible label positions and dimensions
+            node.each(function(d) {
+                const textElement = d3.select(this).select('text');
+                if (!textElement.empty()) {
+                    const bbox = textElement.node().getBBox();
+                    labels.push({
+                        element: textElement,
+                        node: d,
+                        x: d.x + 15, // Label offset from node
+                        y: d.y + 4,
+                        width: bbox.width,
+                        height: bbox.height,
+                        connections: d.connections || 0,
+                        visible: true
+                    });
+                }
+            });
+
+            // Sort by importance (connection count) - more connected nodes get priority
+            labels.sort((a, b) => b.connections - a.connections);
+
+            // Detect and handle collisions
+            const visibleBounds = [];
+
+            labels.forEach((label, i) => {
+                // Check if this label overlaps with any already-visible labels
+                let overlaps = false;
+                let bestPosition = { x: label.x, y: label.y, side: 'right' };
+
+                const labelBound = {
+                    x1: label.x - labelPadding,
+                    y1: label.y - label.height - labelPadding,
+                    x2: label.x + label.width + labelPadding,
+                    y2: label.y + labelPadding
+                };
+
+                for (const existing of visibleBounds) {
+                    if (boundsOverlap(labelBound, existing)) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+
+                if (overlaps) {
+                    // Try alternative positions: below, left, above
+                    const alternatives = [
+                        { x: label.node.x + 15, y: label.node.y + 20, side: 'below' },
+                        { x: label.node.x - label.width - 10, y: label.node.y + 4, side: 'left' },
+                        { x: label.node.x + 15, y: label.node.y - 15, side: 'above' }
+                    ];
+
+                    let foundPosition = false;
+                    for (const alt of alternatives) {
+                        const altBound = {
+                            x1: alt.x - labelPadding,
+                            y1: alt.y - label.height - labelPadding,
+                            x2: alt.x + label.width + labelPadding,
+                            y2: alt.y + labelPadding
+                        };
+
+                        let altOverlaps = false;
+                        for (const existing of visibleBounds) {
+                            if (boundsOverlap(altBound, existing)) {
+                                altOverlaps = true;
+                                break;
+                            }
+                        }
+
+                        if (!altOverlaps) {
+                            bestPosition = alt;
+                            foundPosition = true;
+                            break;
+                        }
+                    }
+
+                    // If no good position found and this node has few connections, hide the label
+                    if (!foundPosition && label.connections < 3) {
+                        label.element.style('opacity', 0);
+                        return; // Skip adding to visible bounds
+                    }
+                }
+
+                // Update label position
+                label.element
+                    .attr('dx', bestPosition.side === 'left' ? -label.width - 10 : 15)
+                    .attr('dy', bestPosition.side === 'below' ? 20 : bestPosition.side === 'above' ? -15 : 4)
+                    .style('opacity', 1);
+
+                // Add to visible bounds
+                visibleBounds.push({
+                    x1: bestPosition.x - labelPadding,
+                    y1: bestPosition.y - label.height - labelPadding,
+                    x2: bestPosition.x + label.width + labelPadding,
+                    y2: bestPosition.y + labelPadding
+                });
+            });
+        }
+
+        function boundsOverlap(a, b) {
+            return !(a.x2 < b.x1 || a.x1 > b.x2 || a.y2 < b.y1 || a.y1 > b.y2);
+        }
+
+        // ========== MINIMAP ==========
+        function initMinimap() {
+            const minimapWidth = 180;
+            const minimapHeight = 120;
+
+            minimapSvg = d3.select('#minimap')
+                .attr('width', minimapWidth)
+                .attr('height', minimapHeight);
+
+            minimapG = minimapSvg.append('g');
+
+            // Viewport rectangle (draggable)
+            minimapViewport = minimapSvg.append('rect')
+                .attr('id', 'minimap-viewport')
+                .attr('x', 0)
+                .attr('y', 0)
+                .attr('width', minimapWidth)
+                .attr('height', minimapHeight)
+                .call(d3.drag()
+                    .on('drag', (event) => {
+                        const bounds = g.node().getBBox();
+                        if (bounds.width === 0) return;
+
+                        const container = document.getElementById('graph-container');
+                        const fullWidth = container.clientWidth;
+                        const fullHeight = container.clientHeight;
+
+                        const scaleX = minimapWidth / (bounds.width + 100);
+                        const scaleY = minimapHeight / (bounds.height + 100);
+                        const scale = Math.min(scaleX, scaleY);
+
+                        // Calculate new center position
+                        const newCenterX = (event.x / scale) + bounds.x - 50;
+                        const newCenterY = (event.y / scale) + bounds.y - 50;
+
+                        // Apply transform
+                        const newTransform = d3.zoomIdentity
+                            .translate(fullWidth / 2 - newCenterX * currentTransform.k, fullHeight / 2 - newCenterY * currentTransform.k)
+                            .scale(currentTransform.k);
+
+                        svg.call(zoom.transform, newTransform);
+                    }));
+        }
+
+        function updateMinimap() {
+            if (!minimapSvg || !g.node()) return;
+
+            const bounds = g.node().getBBox();
+            if (bounds.width === 0) return;
+
+            const minimapWidth = 180;
+            const minimapHeight = 120;
+
+            const container = document.getElementById('graph-container');
+            const fullWidth = container.clientWidth;
+            const fullHeight = container.clientHeight;
+
+            // Calculate scale to fit graph in minimap
+            const padding = 50;
+            const scaleX = minimapWidth / (bounds.width + padding * 2);
+            const scaleY = minimapHeight / (bounds.height + padding * 2);
+            const scale = Math.min(scaleX, scaleY, 0.15);
+
+            // Update minimap transform
+            const offsetX = (minimapWidth - (bounds.width + padding * 2) * scale) / 2;
+            const offsetY = (minimapHeight - (bounds.height + padding * 2) * scale) / 2;
+
+            minimapG.attr('transform', `translate(${offsetX - (bounds.x - padding) * scale}, ${offsetY - (bounds.y - padding) * scale}) scale(${scale})`);
+
+            // Clear and redraw minimap nodes
+            minimapG.selectAll('.minimap-node').remove();
+            minimapG.selectAll('.minimap-link').remove();
+
+            const data = getCurrentData();
+            if (!data) return;
+
+            const filteredNodes = data.nodes.filter(n => activeFilters.has(n.type));
+
+            // Draw links (simplified)
+            minimapG.selectAll('.minimap-link')
+                .data(data.links.filter(l => {
+                    const sourceId = l.source.id ?? l.source;
+                    const targetId = l.target.id ?? l.target;
+                    return filteredNodes.some(n => n.id === sourceId) && filteredNodes.some(n => n.id === targetId);
+                }))
+                .enter()
+                .append('line')
+                .attr('class', 'minimap-link')
+                .attr('stroke', '#333')
+                .attr('stroke-width', 0.5)
+                .attr('x1', d => d.source.x)
+                .attr('y1', d => d.source.y)
+                .attr('x2', d => d.target.x)
+                .attr('y2', d => d.target.y);
+
+            // Draw nodes (simplified as small dots)
+            minimapG.selectAll('.minimap-node')
+                .data(filteredNodes)
+                .enter()
+                .append('circle')
+                .attr('class', 'minimap-node')
+                .attr('r', 3)
+                .attr('cx', d => d.x)
+                .attr('cy', d => d.y)
+                .attr('fill', d => TYPE_COLORS[d.type] || '#999');
+
+            // Update viewport rectangle
+            const viewportX = (-currentTransform.x / currentTransform.k - bounds.x + padding) * scale + offsetX;
+            const viewportY = (-currentTransform.y / currentTransform.k - bounds.y + padding) * scale + offsetY;
+            const viewportWidth = (fullWidth / currentTransform.k) * scale;
+            const viewportHeight = (fullHeight / currentTransform.k) * scale;
+
+            minimapViewport
+                .attr('x', Math.max(0, viewportX))
+                .attr('y', Math.max(0, viewportY))
+                .attr('width', Math.min(viewportWidth, minimapWidth))
+                .attr('height', Math.min(viewportHeight, minimapHeight));
         }
 
         function dragstarted(event) {
@@ -2267,6 +3655,347 @@
             } catch (error) {
                 content.innerHTML = `<p style="color: #ea4335;">Error: ${error.message}</p>`;
             }
+        }
+
+        // ========== ANALYTICS PANEL ==========
+        function showAnalyticsPanel() {
+            const modal = document.getElementById('edit-modal');
+            const title = document.getElementById('modal-title');
+            const content = document.getElementById('modal-content');
+
+            const data = getCurrentData();
+            if (!data) return;
+
+            // Calculate analytics
+            const typeCounts = {};
+            const connectionDist = { '1-2': 0, '3-5': 0, '6-10': 0, '11-20': 0, '20+': 0 };
+            const relationCounts = {};
+            let totalConnections = 0;
+            let maxConnections = 0;
+            let mostConnectedNode = null;
+
+            data.nodes.forEach(n => {
+                typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
+                const conn = n.connections || 0;
+                totalConnections += conn;
+
+                if (conn > maxConnections) {
+                    maxConnections = conn;
+                    mostConnectedNode = n;
+                }
+
+                if (conn <= 2) connectionDist['1-2']++;
+                else if (conn <= 5) connectionDist['3-5']++;
+                else if (conn <= 10) connectionDist['6-10']++;
+                else if (conn <= 20) connectionDist['11-20']++;
+                else connectionDist['20+']++;
+            });
+
+            data.links.forEach(l => {
+                const rel = l.relation || 'unknown';
+                relationCounts[rel] = (relationCounts[rel] || 0) + 1;
+            });
+
+            const avgConnections = data.nodes.length > 0 ? (totalConnections / data.nodes.length).toFixed(1) : 0;
+            const maxTypeCount = Math.max(...Object.values(typeCounts));
+            const maxRelCount = Math.max(...Object.values(relationCounts));
+
+            title.textContent = 'Graph Analytics';
+            content.innerHTML = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="analytics-chart">
+                        <h3 style="margin-bottom: 15px; color: #4285f4;">Overview</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div style="text-align: center; padding: 15px; background: #16213e; border-radius: 8px;">
+                                <div style="font-size: 28px; color: #4285f4; font-weight: bold;">${data.nodes.length}</div>
+                                <div style="font-size: 12px; color: #888;">Total Nodes</div>
+                            </div>
+                            <div style="text-align: center; padding: 15px; background: #16213e; border-radius: 8px;">
+                                <div style="font-size: 28px; color: #34a853; font-weight: bold;">${data.links.length}</div>
+                                <div style="font-size: 12px; color: #888;">Total Edges</div>
+                            </div>
+                            <div style="text-align: center; padding: 15px; background: #16213e; border-radius: 8px;">
+                                <div style="font-size: 28px; color: #fbbc04; font-weight: bold;">${avgConnections}</div>
+                                <div style="font-size: 12px; color: #888;">Avg Connections</div>
+                            </div>
+                            <div style="text-align: center; padding: 15px; background: #16213e; border-radius: 8px;">
+                                <div style="font-size: 28px; color: #ea4335; font-weight: bold;">${Object.keys(typeCounts).length}</div>
+                                <div style="font-size: 12px; color: #888;">Entity Types</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="analytics-chart">
+                        <h3 style="margin-bottom: 15px; color: #4285f4;">Entity Types</h3>
+                        ${Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => `
+                            <div class="analytics-bar">
+                                <div class="analytics-bar-label">${type}</div>
+                                <div class="analytics-bar-track">
+                                    <div class="analytics-bar-fill" style="width: ${(count / maxTypeCount) * 100}%; background: ${TYPE_COLORS[type] || '#666'};"></div>
+                                </div>
+                                <div class="analytics-bar-value">${count}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="analytics-chart">
+                        <h3 style="margin-bottom: 15px; color: #4285f4;">Connection Distribution</h3>
+                        ${Object.entries(connectionDist).map(([range, count]) => `
+                            <div class="analytics-bar">
+                                <div class="analytics-bar-label">${range} conn.</div>
+                                <div class="analytics-bar-track">
+                                    <div class="analytics-bar-fill" style="width: ${(count / Math.max(...Object.values(connectionDist))) * 100}%; background: #4285f4;"></div>
+                                </div>
+                                <div class="analytics-bar-value">${count}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="analytics-chart">
+                        <h3 style="margin-bottom: 15px; color: #4285f4;">Top Relationships</h3>
+                        ${Object.entries(relationCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([rel, count]) => `
+                            <div class="analytics-bar">
+                                <div class="analytics-bar-label" title="${rel}">${rel.substring(0, 12)}${rel.length > 12 ? '...' : ''}</div>
+                                <div class="analytics-bar-track">
+                                    <div class="analytics-bar-fill" style="width: ${(count / maxRelCount) * 100}%; background: #9c27b0;"></div>
+                                </div>
+                                <div class="analytics-bar-value">${count}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                ${mostConnectedNode ? `
+                    <div class="analytics-chart" style="margin-top: 15px;">
+                        <h3 style="margin-bottom: 10px; color: #4285f4;">Most Connected Entity</h3>
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <div style="width: 50px; height: 50px; border-radius: 50%; background: ${TYPE_COLORS[mostConnectedNode.type] || '#666'}; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold;">${maxConnections}</div>
+                            <div>
+                                <div style="font-size: 16px; font-weight: bold;">${mostConnectedNode.name}</div>
+                                <div style="font-size: 12px; color: #888;">${mostConnectedNode.type} · ${maxConnections} connections</div>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+
+                <div class="modal-actions" style="margin-top: 20px;">
+                    <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+                </div>
+            `;
+
+            modal.classList.add('active');
+        }
+
+        // ========== PATH FINDER ==========
+        function showPathFinderModal() {
+            const modal = document.getElementById('edit-modal');
+            const title = document.getElementById('modal-title');
+            const content = document.getElementById('modal-content');
+
+            title.textContent = 'Find Path Between Entities';
+            content.innerHTML = `
+                <div class="form-group">
+                    <label>Start Entity</label>
+                    <input type="text" id="path-start-search" placeholder="Search for start entity...">
+                    <div id="path-start-results" style="background: #1a1a2e; border: 1px solid #0f3460; border-radius: 6px; margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
+                    <input type="hidden" id="path-start-id">
+                </div>
+                <div class="form-group">
+                    <label>End Entity</label>
+                    <input type="text" id="path-end-search" placeholder="Search for end entity...">
+                    <div id="path-end-results" style="background: #1a1a2e; border: 1px solid #0f3460; border-radius: 6px; margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
+                    <input type="hidden" id="path-end-id">
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="findPath()">Find Path</button>
+                </div>
+                <div id="path-result" style="margin-top: 15px;"></div>
+            `;
+
+            modal.classList.add('active');
+
+            // Setup search for start and end entities
+            setupPathSearch('path-start-search', 'path-start-results', 'path-start-id');
+            setupPathSearch('path-end-search', 'path-end-results', 'path-end-id');
+        }
+
+        function setupPathSearch(inputId, resultsId, hiddenId) {
+            const input = document.getElementById(inputId);
+            const results = document.getElementById(resultsId);
+            const hidden = document.getElementById(hiddenId);
+
+            input.addEventListener('input', async (e) => {
+                const q = e.target.value;
+                if (q.length < 2) {
+                    results.innerHTML = '';
+                    return;
+                }
+
+                const resp = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`);
+                const matches = await resp.json();
+
+                results.innerHTML = matches.slice(0, 5).map(m => `
+                    <div class="search-result-item" data-id="${m.id}" data-name="${m.name}">
+                        <span class="dot" style="background: ${m.color}"></span>
+                        ${m.name}
+                    </div>
+                `).join('');
+
+                results.querySelectorAll('.search-result-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        hidden.value = item.dataset.id;
+                        input.value = item.dataset.name;
+                        results.innerHTML = '';
+                    });
+                });
+            });
+        }
+
+        function findPath() {
+            const startId = document.getElementById('path-start-id').value;
+            const endId = document.getElementById('path-end-id').value;
+            const resultDiv = document.getElementById('path-result');
+
+            if (!startId || !endId) {
+                resultDiv.innerHTML = '<p style="color: #ea4335;">Please select both start and end entities.</p>';
+                return;
+            }
+
+            if (startId === endId) {
+                resultDiv.innerHTML = '<p style="color: #ea4335;">Start and end entities are the same.</p>';
+                return;
+            }
+
+            // BFS to find shortest path
+            const data = getCurrentData();
+            const adjList = new Map();
+
+            // Build adjacency list
+            data.links.forEach(l => {
+                const sourceId = l.source.id ?? l.source;
+                const targetId = l.target.id ?? l.target;
+
+                if (!adjList.has(sourceId)) adjList.set(sourceId, []);
+                if (!adjList.has(targetId)) adjList.set(targetId, []);
+
+                adjList.get(sourceId).push({ id: targetId, relation: l.relation });
+                adjList.get(targetId).push({ id: sourceId, relation: l.relation });
+            });
+
+            // BFS
+            const queue = [{ id: startId, path: [startId], relations: [] }];
+            const visited = new Set([startId]);
+
+            while (queue.length > 0) {
+                const { id, path, relations } = queue.shift();
+
+                if (id === endId) {
+                    // Found path! Display it
+                    displayPath(path, relations, data);
+                    return;
+                }
+
+                const neighbors = adjList.get(id) || [];
+                for (const neighbor of neighbors) {
+                    if (!visited.has(neighbor.id)) {
+                        visited.add(neighbor.id);
+                        queue.push({
+                            id: neighbor.id,
+                            path: [...path, neighbor.id],
+                            relations: [...relations, neighbor.relation]
+                        });
+                    }
+                }
+            }
+
+            resultDiv.innerHTML = '<p style="color: #ea4335;">No path found between these entities.</p>';
+        }
+
+        function displayPath(pathIds, relations, data) {
+            const resultDiv = document.getElementById('path-result');
+            const nodes = pathIds.map(id => data.nodes.find(n => n.id === id));
+
+            let html = `
+                <div style="background: #1a1a2e; border-radius: 8px; padding: 15px; margin-top: 15px;">
+                    <h4 style="color: #34a853; margin-bottom: 15px;">Path Found (${pathIds.length} steps)</h4>
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
+            `;
+
+            nodes.forEach((node, i) => {
+                if (node) {
+                    html += `
+                        <div style="padding: 8px 12px; background: ${TYPE_COLORS[node.type] || '#666'}; border-radius: 6px; font-size: 12px;">
+                            ${node.name}
+                        </div>
+                    `;
+
+                    if (i < relations.length) {
+                        html += `
+                            <div style="color: #888; font-size: 11px;">
+                                →<br><span style="font-size: 9px;">${relations[i] || 'related'}</span>→
+                            </div>
+                        `;
+                    }
+                }
+            });
+
+            html += `
+                    </div>
+                    <button class="btn btn-secondary" style="margin-top: 15px;" onclick="highlightPath(${JSON.stringify(pathIds)})">Highlight on Graph</button>
+                </div>
+            `;
+
+            resultDiv.innerHTML = html;
+        }
+
+        function highlightPath(pathIds) {
+            closeModal();
+
+            const pathSet = new Set(pathIds);
+
+            // Highlight nodes in path
+            node.style('opacity', d => pathSet.has(d.id) ? 1 : 0.15)
+                .classed('node-glow', d => pathSet.has(d.id));
+
+            // Highlight edges in path
+            link.style('opacity', l => {
+                const sourceId = l.source.id ?? l.source;
+                const targetId = l.target.id ?? l.target;
+
+                // Check if this edge is part of the path
+                for (let i = 0; i < pathIds.length - 1; i++) {
+                    if ((pathIds[i] === sourceId && pathIds[i + 1] === targetId) ||
+                        (pathIds[i] === targetId && pathIds[i + 1] === sourceId)) {
+                        return 1;
+                    }
+                }
+                return 0.05;
+            }).style('stroke', l => {
+                const sourceId = l.source.id ?? l.source;
+                const targetId = l.target.id ?? l.target;
+
+                for (let i = 0; i < pathIds.length - 1; i++) {
+                    if ((pathIds[i] === sourceId && pathIds[i + 1] === targetId) ||
+                        (pathIds[i] === targetId && pathIds[i + 1] === sourceId)) {
+                        return '#34a853';
+                    }
+                }
+                return '#444';
+            }).style('stroke-width', l => {
+                const sourceId = l.source.id ?? l.source;
+                const targetId = l.target.id ?? l.target;
+
+                for (let i = 0; i < pathIds.length - 1; i++) {
+                    if ((pathIds[i] === sourceId && pathIds[i + 1] === targetId) ||
+                        (pathIds[i] === targetId && pathIds[i + 1] === sourceId)) {
+                        return 3;
+                    }
+                }
+                return null;
+            });
+
+            showNotification(`Path highlighted. Press Escape to clear.`);
         }
 
         // ========== EXPORT FUNCTIONALITY ==========
