@@ -920,6 +920,27 @@
         // Configuration
         const API_BASE = '';  // Same origin
 
+        // Iqidis: inject matter_id from URL into all API requests
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const matterId = params.get('matter_id');
+            if (!matterId) return;
+            const origFetch = window.fetch;
+            window.fetch = function(url, opts) {
+                if (typeof url === 'string' && url.includes('/api/')) {
+                    url = url + (url.includes('?') ? '&' : '?') + 'matter_id=' + encodeURIComponent(matterId);
+                }
+                if (opts && opts.body && typeof opts.body === 'string') {
+                    try {
+                        const j = JSON.parse(opts.body);
+                        if (!j.matter_id) j.matter_id = matterId;
+                        opts = { ...opts, body: JSON.stringify(j) };
+                    } catch (_) {}
+                }
+                return origFetch.call(this, url, opts);
+            };
+        })();
+
         // State
         let fullGraphData = null;
         let queryGraphData = null;

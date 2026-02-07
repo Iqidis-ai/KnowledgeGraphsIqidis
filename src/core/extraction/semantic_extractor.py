@@ -12,7 +12,7 @@ import time
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
-import google.generativeai as genai
+from google import genai
 from json_repair import repair_json
 
 from ..config import GEMINI_API_KEY, GEMINI_MODEL
@@ -217,12 +217,13 @@ Output only valid JSON array of facts:
 """
 
     def __init__(self, api_key: str = GEMINI_API_KEY):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(GEMINI_MODEL)
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = GEMINI_MODEL
         self.last_request_time = 0
 
         # Generation config for structured output
-        self.generation_config = genai.GenerationConfig(
+        from google.genai import types
+        self.generation_config = types.GenerateContentConfig(
             temperature=0.1,  # Low temperature for consistent extraction
             top_p=0.95,
             max_output_tokens=16384,  # Increased for unified extraction
@@ -241,9 +242,10 @@ Output only valid JSON array of facts:
         for attempt in range(MAX_RETRIES):
             try:
                 self._rate_limit()
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config=self.generation_config
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=self.generation_config
                 )
                 return response.text
             except Exception as e:

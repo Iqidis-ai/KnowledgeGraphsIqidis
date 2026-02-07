@@ -13,6 +13,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -24,7 +25,7 @@ from src.api.server import api, init_matter
 from src.core.config import GEMINI_API_KEY
 
 
-def create_visualization_app(matter_name: str, api_key: str = GEMINI_API_KEY) -> Flask:
+def create_visualization_app(matter_name: Optional[str] = None, api_key: str = GEMINI_API_KEY) -> Flask:
     """
     Create the visualization server application.
 
@@ -36,10 +37,11 @@ def create_visualization_app(matter_name: str, api_key: str = GEMINI_API_KEY) ->
         Configured Flask application with static file serving and API
     """
     app = Flask(__name__, static_folder='visualization')
-    CORS(app)
+    CORS(app, origins=['*'], allow_headers=['Content-Type', 'X-Matter-Id'])
 
-    # Initialize the API for this matter
-    init_matter(matter_name, api_key)
+    # Initialize the API for this matter (skip if None - for Iqidis mode)
+    if matter_name:
+        init_matter(matter_name, api_key)
 
     # Register API blueprint
     app.register_blueprint(api)
@@ -62,8 +64,8 @@ def main():
     )
     parser.add_argument(
         '--matter', '-m',
-        default='citiom_v_gulfstream',
-        help='Matter name (default: citiom_v_gulfstream)'
+        default=None,
+        help='Matter name. Omit for Iqidis mode (matter_id sent per request)'
     )
     parser.add_argument(
         '--port', '-p',
@@ -89,18 +91,19 @@ def main():
 
     args = parser.parse_args()
 
-    # Determine database path for display
-    db_path = Path(__file__).parent / "matters" / args.matter / "graph.db"
-
     print("=" * 50)
     print("Knowledge Graph Visualization Server")
     print("=" * 50)
-    print(f"Matter:   {args.matter}")
-    print(f"Database: {db_path}")
-    print(f"Open http://localhost:{args.port} in your browser")
+    if args.matter:
+        db_path = Path(__file__).parent / "matters" / args.matter / "graph.db"
+        print(f"Matter:   {args.matter}")
+        print(f"Database: {db_path}")
+    else:
+        print("Mode:     Iqidis (matter_id per request)")
+        print("API:      /api/matters, /api/extract-from-iqidis, /api/graph?matter_id=...")
+    print(f"URL:      http://localhost:{args.port}")
     print("=" * 50)
 
-    # Create and run app
     api_key = args.api_key or GEMINI_API_KEY
     app = create_visualization_app(args.matter, api_key)
 

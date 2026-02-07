@@ -384,6 +384,77 @@ class ExtractionPipeline:
 
         return doc_id
 
+    def process_parsed_document(
+        self, parsed: ParsedDocument, skip_if_exists: bool = True
+    ) -> Optional[str]:
+        """
+        Process an already-parsed document (e.g. from S3 bytes).
+        Returns document ID if successful.
+        """
+        _print(f"\n{'='*60}")
+        _print(f"Processing: {parsed.filename}")
+        _print('='*60)
+
+        if skip_if_exists:
+            existing = self.db.get_document_by_hash(parsed.file_hash)
+            if existing and existing.processed_at:
+                _print(f"Document already processed: {existing.id}")
+                return existing.id
+
+        doc = Document.create(
+            filename=parsed.filename,
+            filepath=parsed.filepath,
+            file_hash=parsed.file_hash
+        )
+        doc_id = self.db.add_document(doc)
+        _print(f"Created document record: {doc_id}")
+
+        _print("\n[2/6] Extracting structural elements...")
+        structural = self.structural_extractor.extract(parsed.text)
+        self._store_structural_results(structural, doc_id, parsed.text)
+
+        _print("\n[3/6] Chunking document...")
+        chunks = self.chunker.chunk_text(parsed.text)
+        _print(f"Created {len(chunks)} chunks")
+
+        existing_entities = [e.canonical_name for e in self.db.get_all_entities(limit=100)]
+
+        _print("\n[4/6] Extracting entities, relations, and facts (parallel)...")
+        all_entities, all_relations, all_facts = [], [], []
+        if len(chunks) > 1:
+            results = self._extract_chunks_parallel(chunks, existing_entities)
+        else:
+            results = self._extract_chunks_sequential(chunks, existing_entities)
+
+        for extraction, chunk in results:
+            for entity in extraction.entities:
+                if not isinstance(entity.properties, dict):
+                    entity.properties = {}
+                entity.properties['chunk_start'] = chunk.start_char
+                entity.properties['chunk_end'] = chunk.end_char
+            all_entities.extend(extraction.entities)
+            all_relations.extend(extraction.relations)
+            all_facts.extend(extraction.facts)
+
+        _print("\n[4.5/6] Inferring implicit relationships...")
+        inferred = RelationshipInferrer.infer_relationships(
+            all_entities, all_relations, all_facts
+        )
+        all_relations.extend(inferred)
+
+        _print("\n[5/6] Resolving and storing entities...")
+        entity_map = self._resolve_and_store_entities(all_entities, doc_id, parsed.text)
+
+        _print("\n[6/6] Storing relations and facts...")
+        self._store_relations(all_relations, entity_map, doc_id)
+        self._store_facts(all_facts, entity_map, doc_id)
+
+        self.db.mark_document_processed(doc_id)
+        self.vector_store.save()
+
+        _print(f"\nDocument processing complete: {doc_id}")
+        return doc_id
+
     def process_directory(self, dirpath: str, recursive: bool = True, parallel: bool = False) -> List[str]:
         """Process all documents in a directory.
 

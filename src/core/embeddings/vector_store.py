@@ -156,45 +156,69 @@ class VectorStore:
 
 
 class EmbeddingGenerator:
-    """Generate embeddings using Gemini API."""
+    """Generate embeddings using Gemini API (new google-genai SDK)."""
 
     def __init__(self, api_key: str):
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        self.genai = genai
-        # Use text-embedding model for embeddings
-        self.model_name = "models/text-embedding-004"
+        from google import genai
+        from google.genai import types
+        
+        self.client = genai.Client(api_key=api_key)
+        self.types = types
+        self.model_name = "gemini-embedding-001"  # Correct model name for new SDK
+        print(f"✓ Initialized EmbeddingGenerator with model: {self.model_name}")
 
     def generate(self, text: str) -> np.ndarray:
         """Generate embedding for text."""
         try:
-            result = self.genai.embed_content(
+            # Use new SDK with task type for document embedding
+            result = self.client.models.embed_content(
                 model=self.model_name,
-                content=text,
-                task_type="retrieval_document"
+                contents=text[:2048],
+                config=self.types.EmbedContentConfig(
+                    task_type="RETRIEVAL_DOCUMENT",
+                    output_dimensionality=EMBEDDING_DIMENSION
+                )
             )
-            return np.array(result['embedding'], dtype=np.float32)
+            # Access embedding from response
+            embedding = result.embeddings[0].values
+            return np.array(embedding, dtype=np.float32)
         except Exception as e:
             print(f"Error generating embedding: {e}")
-            # Return zero vector as fallback
             return np.zeros(EMBEDDING_DIMENSION, dtype=np.float32)
 
     def generate_batch(self, texts: List[str]) -> List[np.ndarray]:
         """Generate embeddings for multiple texts."""
-        embeddings = []
-        for text in texts:
-            embeddings.append(self.generate(text))
-        return embeddings
+        try:
+            # New SDK supports batch embedding natively
+            truncated_texts = [text[:2048] for text in texts]
+            result = self.client.models.embed_content(
+                model=self.model_name,
+                contents=truncated_texts,
+                config=self.types.EmbedContentConfig(
+                    task_type="RETRIEVAL_DOCUMENT",
+                    output_dimensionality=EMBEDDING_DIMENSION
+                )
+            )
+            embeddings = [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
+            return embeddings
+        except Exception as e:
+            print(f"Error generating batch embeddings: {e}")
+            # Fallback to individual generation
+            return [self.generate(text) for text in texts]
 
     def generate_query_embedding(self, query: str) -> np.ndarray:
         """Generate embedding for a query (different task type for retrieval)."""
         try:
-            result = self.genai.embed_content(
+            result = self.client.models.embed_content(
                 model=self.model_name,
-                content=query,
-                task_type="retrieval_query"
+                contents=query,
+                config=self.types.EmbedContentConfig(
+                    task_type="RETRIEVAL_QUERY",
+                    output_dimensionality=EMBEDDING_DIMENSION
+                )
             )
-            return np.array(result['embedding'], dtype=np.float32)
+            embedding = result.embeddings[0].values
+            return np.array(embedding, dtype=np.float32)
         except Exception as e:
             print(f"Error generating query embedding: {e}")
             return np.zeros(EMBEDDING_DIMENSION, dtype=np.float32)

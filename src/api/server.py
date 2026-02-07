@@ -18,7 +18,7 @@ from pathlib import Path
 from flask import Flask, Blueprint, jsonify, request
 from flask_cors import CORS
 
-import google.generativeai as genai
+from google import genai
 
 # Import from core
 from ..core import KnowledgeGraph, GEMINI_API_KEY, MATTERS_DIR
@@ -34,12 +34,13 @@ api = Blueprint('api', __name__, url_prefix='/api')
 _kg: Optional[KnowledgeGraph] = None
 _exporter: Optional[GraphExporter] = None
 _matter_name: str = "default"
+_nl_edit_client = None
 _nl_edit_model = None
 
 
 def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY):
     """Initialize the API for a specific matter."""
-    global _kg, _exporter, _matter_name, _nl_edit_model
+    global _kg, _exporter, _matter_name, _nl_edit_client, _nl_edit_model
     _matter_name = matter_name
     _kg = KnowledgeGraph(matter_name, api_key=api_key)
 
@@ -47,8 +48,18 @@ def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY):
     _exporter = GraphExporter(str(db_path))
 
     # Configure NL edit model
-    genai.configure(api_key=api_key)
-    _nl_edit_model = genai.GenerativeModel('gemini-2.0-flash')
+    _nl_edit_client = genai.Client(api_key=api_key)
+    _nl_edit_model = 'gemini-2.0-flash'
+
+
+def _ensure_matter(matter_id: Optional[str] = None):
+    """Ensure API is initialized for the given matter_id. Uses query param, X-Matter-Id header, or passed arg."""
+    mid = matter_id or request.args.get('matter_id') or request.headers.get('X-Matter-Id')
+    if mid and mid != _matter_name:
+        init_matter(mid)
+    elif _kg is None:
+        from flask import abort
+        abort(400, description='matter_id required (query param or X-Matter-Id header)')
 
 
 def get_kg() -> KnowledgeGraph:
@@ -65,11 +76,47 @@ def get_exporter() -> GraphExporter:
     return _exporter
 
 
+# ==================== Iqidis Integration (documents from Iqidis, KG stored locally) ====================
+
+@api.route('/matters', methods=['GET'])
+def api_list_matters():
+    """List matters from Iqidis database."""
+    try:
+        from ..core.iqidis_data import get_matters
+        user_id = request.args.get('user_id')
+        limit = int(request.args.get('limit', 100))
+        matters = get_matters(user_id=user_id, limit=limit)
+        return jsonify({'matters': matters})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/extract-from-iqidis', methods=['POST'])
+def api_extract_from_iqidis():
+    """Extract KG from Iqidis documents. Stores graph locally (SQLite)."""
+    try:
+        data = request.get_json() or {}
+        matter_id = data.get('matter_id')
+        if not matter_id:
+            return jsonify({'error': 'matter_id is required'}), 400
+        from ..core.iqidis_extract import extract_from_iqidis_matter
+        result = extract_from_iqidis_matter(matter_id, GEMINI_API_KEY, verbose=True)
+        init_matter(matter_id)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 # ==================== Statistics ====================
 
 @api.route('/stats')
 def api_stats():
     """Get graph statistics."""
+    _ensure_matter()
     exp = get_exporter()
     stats = exp.get_stats()
     return jsonify(stats)
@@ -80,6 +127,7 @@ def api_stats():
 @api.route('/graph')
 def api_graph():
     """Get full graph data for visualization."""
+    _ensure_matter()
     exp = get_exporter()
 
     include_facts = request.args.get('include_facts', 'false').lower() == 'true'
@@ -108,6 +156,7 @@ def api_graph():
 @api.route('/search')
 def api_search():
     """Search entities by name."""
+    _ensure_matter()
     query = request.args.get('q', '')
     limit = int(request.args.get('limit', 20))
 
@@ -124,6 +173,7 @@ def api_search():
 @api.route('/entity/<entity_id>')
 def api_get_entity(entity_id):
     """Get entity details and neighborhood."""
+    _ensure_matter()
     depth = int(request.args.get('depth', 2))
     max_nodes = int(request.args.get('max_nodes', 50))
 
@@ -294,7 +344,8 @@ def api_delete_edge(edge_id):
 @api.route('/query', methods=['POST'])
 def api_query():
     """Execute NL query and return results with subgraph."""
-    data = request.get_json()
+    data = request.get_json() or {}
+    _ensure_matter(data.get('matter_id'))
     query_text = data.get('query', '')
 
     if not query_text:
@@ -420,7 +471,7 @@ def api_relation_types():
 @api.route('/nl-edit', methods=['POST'])
 def api_nl_edit():
     """Execute a natural language edit command."""
-    global _nl_edit_model
+    global _nl_edit_client, _nl_edit_model
 
     data = request.get_json()
     command = data.get('command', '').strip()
@@ -445,7 +496,10 @@ Return ONLY a JSON object (no markdown, no explanation) with one of these struct
 
 JSON response:"""
 
-        response = _nl_edit_model.generate_content(prompt)
+        response = _nl_edit_client.models.generate_content(
+            model=_nl_edit_model,
+            contents=prompt
+        )
         response_text = response.text.strip()
 
         if response_text.startswith('```'):
@@ -1556,8 +1610,11 @@ Provide a 3-4 paragraph executive summary covering:
 Be factual and cite the entities mentioned above. Output only the summary text."""
 
         # Call LLM
-        if _nl_edit_model:
-            response = _nl_edit_model.generate_content(prompt)
+        if _nl_edit_client and _nl_edit_model:
+            response = _nl_edit_client.models.generate_content(
+                model=_nl_edit_model,
+                contents=prompt
+            )
             summary_text = response.text
         else:
             summary_text = "Summary generation requires LLM model to be configured."

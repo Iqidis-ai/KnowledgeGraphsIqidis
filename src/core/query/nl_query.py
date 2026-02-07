@@ -13,7 +13,7 @@ import time
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
-import google.generativeai as genai
+from google import genai
 
 from ..storage.database import Database
 from ..storage.models import Entity, Edge
@@ -203,13 +203,14 @@ Output as JSON array:
     def __init__(self, db: Database, vector_store: VectorStore, api_key: str = GEMINI_API_KEY):
         self.db = db
         self.vector_store = vector_store
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(GEMINI_MODEL)
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = GEMINI_MODEL
         self.embedding_generator = EmbeddingGenerator(api_key)
         self.last_request_time = 0
         self.inference = GraphInference(db)  # Probabilistic inference engine
 
-        self.generation_config = genai.GenerationConfig(
+        from google.genai import types
+        self.generation_config = types.GenerateContentConfig(
             temperature=0.2,
             top_p=0.95,
             max_output_tokens=4096,
@@ -395,7 +396,11 @@ Output as JSON array:
         for attempt in range(MAX_RETRIES):
             try:
                 self._rate_limit()
-                response = self.model.generate_content(prompt, generation_config=config)
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=config
+                )
                 return response.text
             except Exception as e:
                 error_str = str(e)
@@ -437,7 +442,11 @@ Output as JSON array:
 
         try:
             self._rate_limit()
-            response = self.model.generate_content(prompt, generation_config=self.generation_config)
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=self.generation_config
+            )
             response_text = response.text.strip()
 
             # Parse JSON response

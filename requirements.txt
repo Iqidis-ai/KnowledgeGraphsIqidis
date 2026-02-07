@@ -1,5 +1,5 @@
-# Google Gemini SDK
-google-generativeai>=0.8.0
+# Google Gemini SDK (updated to new unified SDK)
+google-genai>=0.2.0
 
 # Document parsing
 PyMuPDF>=1.24.0
@@ -16,6 +16,12 @@ numpy>=1.26.0
 fastapi>=0.115.0
 uvicorn>=0.32.0
 pydantic>=2.9.0
+flask>=2.3.0
+flask-cors>=4.0.0
+
+# Iqidis integration (read documents from PostgreSQL + S3)
+psycopg2-binary>=2.9.0
+boto3>=1.34.0
 
 # Utilities
 python-dotenv>=1.0.0

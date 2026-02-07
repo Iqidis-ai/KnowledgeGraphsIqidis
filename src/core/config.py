@@ -21,8 +21,19 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 CHUNK_SIZE = 20000  # tokens (large context for Gemini)
 CHUNK_OVERLAP = 1000  # tokens (5% overlap for large chunks)
 
+# Iqidis: max document size for extraction (50 MB)
+MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024
+
+# Iqidis PostgreSQL (read-only, for fetching matters/documents)
+POSTGRES_URL = (
+    os.getenv("development_POSTGRES_URL")
+    or os.getenv("POSTGRES_URL")
+    or os.getenv("development_POSTGRES_URL")
+    or os.getenv("DATABASE_URL")
+)
+
 # Embedding Configuration
-EMBEDDING_DIMENSION = 768
+EMBEDDING_DIMENSION = 768  # Using 768 for gemini-embedding-001 with output_dimensionality
 
 # Paths
 # Navigate from src/core/config.py up to project root
