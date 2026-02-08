@@ -216,36 +216,37 @@ def api_get_entity(entity_id):
 @api.route('/entity/<entity_id>', methods=['PUT'])
 def api_update_entity(entity_id):
     """Update entity properties."""
+    _ensure_matter()
     data = request.get_json()
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         updates = []
         params = []
 
         if 'canonical_name' in data:
-            updates.append('canonical_name = ?')
+            updates.append('canonical_name = %s')
             params.append(data['canonical_name'])
 
         if 'type' in data:
-            updates.append('type = ?')
+            updates.append('type = %s')
             params.append(data['type'])
 
         if 'properties' in data:
-            updates.append('properties = ?')
+            updates.append('properties = %s')
             params.append(json.dumps(data['properties']))
 
         if 'confidence' in data:
-            updates.append('confidence = ?')
+            updates.append('confidence = %s')
             params.append(data['confidence'])
 
         if updates:
             params.append(entity_id)
             cursor.execute(f'''
-                UPDATE entities SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
+                UPDATE kg_entities SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
             ''', params)
             exp.conn.commit()
 
@@ -258,16 +259,17 @@ def api_update_entity(entity_id):
 @api.route('/entity/<entity_id>', methods=['DELETE'])
 def api_delete_entity(entity_id):
     """Delete an entity and its relationships."""
+    _ensure_matter()
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
-        cursor.execute('DELETE FROM edges WHERE source_entity_id = ? OR target_entity_id = ?',
+        cursor.execute('DELETE FROM kg_edges WHERE source_entity_id = %s OR target_entity_id = %s',
                        (entity_id, entity_id))
         cursor.execute(
-            'DELETE FROM mentions WHERE entity_id = ?', (entity_id,))
-        cursor.execute('DELETE FROM aliases WHERE entity_id = ?', (entity_id,))
-        cursor.execute('DELETE FROM entities WHERE id = ?', (entity_id,))
+            'DELETE FROM kg_mentions WHERE entity_id = %s', (entity_id,))
+        cursor.execute('DELETE FROM kg_aliases WHERE entity_id = %s', (entity_id,))
+        cursor.execute('DELETE FROM kg_entities WHERE id = %s', (entity_id,))
 
         exp.conn.commit()
 
@@ -280,6 +282,7 @@ def api_delete_entity(entity_id):
 @api.route('/entity', methods=['POST'])
 def api_create_entity():
     """Create a new entity."""
+    _ensure_matter()
     data = request.get_json()
 
     if not data.get('canonical_name') or not data.get('type'):
@@ -287,13 +290,13 @@ def api_create_entity():
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         entity_id = str(uuid.uuid4())
 
         cursor.execute('''
-            INSERT INTO entities (id, type, canonical_name, properties, confidence, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO kg_entities (id, type, canonical_name, properties, confidence, status, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ''', (
             entity_id,
             data['type'],
@@ -323,6 +326,7 @@ def api_create_entity():
 @api.route('/edge', methods=['POST'])
 def api_create_edge():
     """Create a new edge/relationship."""
+    _ensure_matter()
     data = request.get_json()
 
     required = ['source_entity_id', 'target_entity_id', 'relation_type']
@@ -331,13 +335,13 @@ def api_create_edge():
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         edge_id = str(uuid.uuid4())
 
         cursor.execute('''
-            INSERT INTO edges (id, source_entity_id, target_entity_id, relation_type, confidence, properties, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO kg_edges (id, source_entity_id, target_entity_id, relation_type, confidence, properties, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
         ''', (
             edge_id,
             data['source_entity_id'],
@@ -358,11 +362,12 @@ def api_create_edge():
 @api.route('/edge/<edge_id>', methods=['DELETE'])
 def api_delete_edge(edge_id):
     """Delete an edge."""
+    _ensure_matter()
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
-        cursor.execute('DELETE FROM edges WHERE id = ?', (edge_id,))
+        cursor.execute('DELETE FROM kg_edges WHERE id = %s', (edge_id,))
         exp.conn.commit()
 
         return jsonify({'success': True, 'deleted': edge_id})
@@ -403,7 +408,7 @@ def api_query():
                     'name': entity.get('canonical_name', 'Unknown')[:50],
                     'full_name': entity.get('canonical_name', 'Unknown'),
                     'type': entity.get('type', 'Unknown'),
-                    'color': GraphExporter.TYPE_COLORS.get(entity.get('type'), '#999999'),
+                    'color': PostgreSQLGraphExporter.TYPE_COLORS.get(entity.get('type'), '#999999'),
                     'properties': entity.get('properties', {})
                 })
 
@@ -461,6 +466,7 @@ def api_query():
 @api.route('/merge', methods=['POST'])
 def api_merge_entities():
     """Merge two entities into one."""
+    _ensure_matter()
     data = request.get_json()
 
     keep_id = data.get('keep_id')
@@ -504,6 +510,7 @@ def api_relation_types():
 @api.route('/nl-edit', methods=['POST'])
 def api_nl_edit():
     """Execute a natural language edit command."""
+    _ensure_matter()
     global _nl_edit_client, _nl_edit_model
 
     data = request.get_json()
@@ -543,7 +550,7 @@ JSON response:"""
         action = parsed.get('action')
 
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         if action == 'unknown':
             return jsonify({
@@ -557,8 +564,8 @@ JSON response:"""
             new_name = parsed.get('new_name', '')
 
             cursor.execute('''
-                SELECT id, canonical_name FROM entities
-                WHERE canonical_name LIKE ?
+                SELECT id, canonical_name FROM kg_entities
+                WHERE canonical_name LIKE %s
                 ORDER BY LENGTH(canonical_name)
                 LIMIT 1
             ''', (f'%{entity_name}%',))
@@ -571,8 +578,8 @@ JSON response:"""
                 })
 
             cursor.execute('''
-                UPDATE entities SET canonical_name = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
+                UPDATE kg_entities SET canonical_name = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
             ''', (new_name, row['id']))
             exp.conn.commit()
 
@@ -587,11 +594,11 @@ JSON response:"""
             entity_to_remove = parsed.get('entity_to_remove', '')
             entity_to_keep = parsed.get('entity_to_keep', '')
 
-            cursor.execute('SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ? LIMIT 1',
+            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
                            (f'%{entity_to_remove}%',))
             remove_row = cursor.fetchone()
 
-            cursor.execute('SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ? LIMIT 1',
+            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
                            (f'%{entity_to_keep}%',))
             keep_row = cursor.fetchone()
 
@@ -612,7 +619,7 @@ JSON response:"""
         elif action == 'delete':
             entity_name = parsed.get('entity_name', '')
 
-            cursor.execute('SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ? LIMIT 1',
+            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
                            (f'%{entity_name}%',))
             row = cursor.fetchone()
 
@@ -620,13 +627,13 @@ JSON response:"""
                 return jsonify({'success': False, 'error': f'Entity "{entity_name}" not found'})
 
             entity_id = row['id']
-            cursor.execute('DELETE FROM edges WHERE source_entity_id = ? OR target_entity_id = ?',
+            cursor.execute('DELETE FROM kg_edges WHERE source_entity_id = %s OR target_entity_id = %s',
                            (entity_id, entity_id))
             cursor.execute(
-                'DELETE FROM mentions WHERE entity_id = ?', (entity_id,))
+                'DELETE FROM kg_mentions WHERE entity_id = %s', (entity_id,))
             cursor.execute(
-                'DELETE FROM aliases WHERE entity_id = ?', (entity_id,))
-            cursor.execute('DELETE FROM entities WHERE id = ?', (entity_id,))
+                'DELETE FROM kg_aliases WHERE entity_id = %s', (entity_id,))
+            cursor.execute('DELETE FROM kg_entities WHERE id = %s', (entity_id,))
             exp.conn.commit()
 
             return jsonify({
@@ -641,8 +648,8 @@ JSON response:"""
 
             entity_id = str(uuid.uuid4())
             cursor.execute('''
-                INSERT INTO entities (id, type, canonical_name, properties, confidence, status, created_at, updated_at)
-                VALUES (?, ?, ?, '{}', 'confirmed', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                INSERT INTO kg_entities (id, type, canonical_name, properties, confidence, status, created_at, updated_at)
+                VALUES (%s, %s, %s, '{}', 'confirmed', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ''', (entity_id, entity_type, name))
             exp.conn.commit()
 
@@ -658,11 +665,11 @@ JSON response:"""
             target_name = parsed.get('target', '')
             relation = parsed.get('relation', 'related_to')
 
-            cursor.execute('SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ? LIMIT 1',
+            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
                            (f'%{source_name}%',))
             source_row = cursor.fetchone()
 
-            cursor.execute('SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ? LIMIT 1',
+            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
                            (f'%{target_name}%',))
             target_row = cursor.fetchone()
 
@@ -673,8 +680,8 @@ JSON response:"""
 
             edge_id = str(uuid.uuid4())
             cursor.execute('''
-                INSERT INTO edges (id, source_entity_id, target_entity_id, relation_type, confidence, properties, created_at)
-                VALUES (?, ?, ?, ?, 'confirmed', '{}', CURRENT_TIMESTAMP)
+                INSERT INTO kg_edges (id, source_entity_id, target_entity_id, relation_type, confidence, properties, created_at)
+                VALUES (%s, %s, %s, %s, 'confirmed', '{}', CURRENT_TIMESTAMP)
             ''', (edge_id, source_row['id'], target_row['id'], relation))
             exp.conn.commit()
 
@@ -688,14 +695,14 @@ JSON response:"""
             entity_name = parsed.get('entity_name', '')
             new_type = parsed.get('new_type', '')
 
-            cursor.execute('SELECT id, canonical_name, type FROM entities WHERE canonical_name LIKE ? LIMIT 1',
+            cursor.execute('SELECT id, canonical_name, type FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
                            (f'%{entity_name}%',))
             row = cursor.fetchone()
 
             if not row:
                 return jsonify({'success': False, 'error': f'Entity "{entity_name}" not found'})
 
-            cursor.execute('UPDATE entities SET type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            cursor.execute('UPDATE kg_entities SET type = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s',
                            (new_type, row['id']))
             exp.conn.commit()
 
@@ -776,26 +783,27 @@ def _find_duplicates(entities: List[Dict], threshold: float = 0.75) -> List[Dict
 @api.route('/duplicates')
 def api_find_duplicates():
     """Find potential duplicate entities for cleanup."""
+    _ensure_matter()
     threshold = float(request.args.get('threshold', 0.75))
     limit = int(request.args.get('limit', 100))
     entity_type = request.args.get('type')  # Optional filter by type
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         # Get all entities
         if entity_type:
             cursor.execute('''
                 SELECT id, canonical_name, type
-                FROM entities
-                WHERE type = ?
+                FROM kg_entities
+                WHERE type = %s
                 ORDER BY canonical_name
             ''', (entity_type,))
         else:
             cursor.execute('''
                 SELECT id, canonical_name, type
-                FROM entities
+                FROM kg_entities
                 ORDER BY type, canonical_name
             ''')
 
@@ -820,6 +828,7 @@ def api_find_duplicates():
 @api.route('/batch-merge', methods=['POST'])
 def api_batch_merge():
     """Merge multiple pairs of entities at once."""
+    _ensure_matter()
     data = request.get_json()
     merges = data.get('merges', [])  # List of {keep_id, merge_id}
 
@@ -908,16 +917,17 @@ def _parse_date(date_str: str) -> Optional[str]:
 @api.route('/timeline')
 def api_timeline():
     """Get timeline of dated events/entities."""
+    _ensure_matter()
     limit = int(request.args.get('limit', 200))
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         # Get Date entities
         cursor.execute('''
             SELECT e.id, e.canonical_name, e.type, e.properties
-            FROM entities e
+            FROM kg_entities e
             WHERE e.type = 'Date'
             ORDER BY e.canonical_name
         ''')
@@ -926,14 +936,15 @@ def api_timeline():
         # Get facts with dates (deadlines, key_terms with dates)
         cursor.execute('''
             SELECT e.id, e.canonical_name, e.type, e.properties
-            FROM entities e
+            FROM kg_entities e
             WHERE e.type = 'Fact'
             AND (
-                json_extract(e.properties, '$.fact_type') IN ('deadline', 'key_term')
-                OR e.canonical_name LIKE '%date%'
-                OR e.canonical_name LIKE '%deadline%'
+                e.properties::text LIKE '%%"fact_type": "deadline"%%'
+                OR e.properties::text LIKE '%%"fact_type": "key_term"%%'
+                OR e.canonical_name ILIKE '%%date%%'
+                OR e.canonical_name ILIKE '%%deadline%%'
             )
-            LIMIT ?
+            LIMIT %s
         ''', (limit,))
         fact_entities = [dict(row) for row in cursor.fetchall()]
 
@@ -942,15 +953,15 @@ def api_timeline():
 
         for entity in date_entities:
             parsed = _parse_date(entity['canonical_name'])
-            props = json.loads(entity.get('properties', '{}') or '{}')
+            props = entity.get('properties') or {}
 
             # Get related entities
             cursor.execute('''
                 SELECT DISTINCT e2.canonical_name, e2.type, ed.relation_type
-                FROM edges ed
-                JOIN entities e2 ON (
-                    (ed.source_entity_id = ? AND ed.target_entity_id = e2.id)
-                    OR (ed.target_entity_id = ? AND ed.source_entity_id = e2.id)
+                FROM kg_edges ed
+                JOIN kg_entities e2 ON (
+                    (ed.source_entity_id = %s AND ed.target_entity_id = e2.id)
+                    OR (ed.target_entity_id = %s AND ed.source_entity_id = e2.id)
                 )
                 WHERE e2.type != 'Date'
                 LIMIT 10
@@ -969,7 +980,7 @@ def api_timeline():
             })
 
         for entity in fact_entities:
-            props = json.loads(entity.get('properties', '{}') or '{}')
+            props = entity.get('properties') or {}
             parsed = _parse_date(props.get('due_date', '') or props.get(
                 'date', '') or entity['canonical_name'])
 
@@ -1003,18 +1014,19 @@ def api_timeline():
 @api.route('/export')
 def api_export():
     """Export graph data in various formats."""
+    _ensure_matter()
     format_type = request.args.get('format', 'json')
     include_facts = request.args.get('include_facts', 'true').lower() == 'true'
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         # Get all entities
         cursor.execute('''
             SELECT id, canonical_name, type, properties, confidence
-            FROM entities
-            WHERE type != 'Fact' OR ?
+            FROM kg_entities
+            WHERE type != 'Fact' OR %s
             ORDER BY type, canonical_name
         ''', (include_facts,))
         entities = [dict(row) for row in cursor.fetchall()]
@@ -1023,9 +1035,9 @@ def api_export():
         cursor.execute('''
             SELECT e.id, e.source_entity_id, e.target_entity_id, e.relation_type, e.properties,
                    src.canonical_name as source_name, tgt.canonical_name as target_name
-            FROM edges e
-            JOIN entities src ON e.source_entity_id = src.id
-            JOIN entities tgt ON e.target_entity_id = tgt.id
+            FROM kg_edges e
+            JOIN kg_entities src ON e.source_entity_id = src.id
+            JOIN kg_entities tgt ON e.target_entity_id = tgt.id
         ''')
         edges = [dict(row) for row in cursor.fetchall()]
 
@@ -1208,20 +1220,21 @@ def _compute_betweenness(adj: Dict[str, set], entity_ids: set, sample_size: int 
 @api.route('/analytics')
 def api_analytics():
     """Compute graph analytics: degree centrality, PageRank, betweenness."""
+    _ensure_matter()
     limit = int(request.args.get('limit', 50))
     # degree, pagerank, betweenness, all
     metric = request.args.get('metric', 'all')
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         # Get entities
-        cursor.execute('SELECT id, canonical_name, type FROM entities')
+        cursor.execute('SELECT id, canonical_name, type FROM kg_entities')
         entities = {row['id']: dict(row) for row in cursor.fetchall()}
 
         # Get edges
-        cursor.execute('SELECT source_entity_id, target_entity_id FROM edges')
+        cursor.execute('SELECT source_entity_id, target_entity_id FROM kg_edges')
         edges = [dict(row) for row in cursor.fetchall()]
 
         # Build adjacency
@@ -1333,6 +1346,7 @@ def api_analytics():
 @api.route('/shortest-path')
 def api_shortest_path():
     """Find shortest path between two entities."""
+    _ensure_matter()
     source_id = request.args.get('source')
     target_id = request.args.get('target')
 
@@ -1341,10 +1355,10 @@ def api_shortest_path():
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         # Get entities
-        cursor.execute('SELECT id, canonical_name, type FROM entities')
+        cursor.execute('SELECT id, canonical_name, type FROM kg_entities')
         entities = {row['id']: dict(row) for row in cursor.fetchall()}
 
         if source_id not in entities:
@@ -1355,7 +1369,7 @@ def api_shortest_path():
         # Get edges with relation info
         cursor.execute('''
             SELECT id, source_entity_id, target_entity_id, relation_type
-            FROM edges
+            FROM kg_edges
         ''')
         edges = [dict(row) for row in cursor.fetchall()]
 
@@ -1489,6 +1503,7 @@ QUERY_TEMPLATES = {
 @api.route('/schema')
 def api_schema():
     """Get the current graph schema (entity types, relationship types, counts)."""
+    _ensure_matter()
     try:
         from ..core.query.nl_query import NLQueryEngine
 
@@ -1535,6 +1550,7 @@ def api_query_templates():
 @api.route('/query-template/<template_id>')
 def api_execute_template(template_id):
     """Execute a pre-defined query template."""
+    _ensure_matter()
     if template_id not in QUERY_TEMPLATES:
         return jsonify({'error': f'Unknown template: {template_id}'}), 404
 
@@ -1566,21 +1582,22 @@ def api_execute_template(template_id):
 @api.route('/summary')
 def api_graph_summary():
     """Generate a natural language summary of the knowledge graph."""
+    _ensure_matter()
     max_entities = int(request.args.get('max_entities', 30))
     include_facts = request.args.get('include_facts', 'true').lower() == 'true'
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         # Get key entities by importance
         cursor.execute('''
             SELECT e.id, e.canonical_name, e.type, e.properties, e.confidence,
-                   (SELECT COUNT(*) FROM edges WHERE source_entity_id = e.id OR target_entity_id = e.id) as degree
-            FROM entities e
+                   (SELECT COUNT(*) FROM kg_edges WHERE source_entity_id = e.id OR target_entity_id = e.id) as degree
+            FROM kg_entities e
             WHERE e.type IN ('Organization', 'Person', 'Document')
             ORDER BY degree DESC
-            LIMIT ?
+            LIMIT %s
         ''', (max_entities,))
         key_entities = [dict(row) for row in cursor.fetchall()]
 
@@ -1588,9 +1605,9 @@ def api_graph_summary():
         cursor.execute('''
             SELECT e.relation_type, src.canonical_name as source_name, tgt.canonical_name as target_name,
                    src.type as source_type, tgt.type as target_type
-            FROM edges e
-            JOIN entities src ON e.source_entity_id = src.id
-            JOIN entities tgt ON e.target_entity_id = tgt.id
+            FROM kg_edges e
+            JOIN kg_entities src ON e.source_entity_id = src.id
+            JOIN kg_entities tgt ON e.target_entity_id = tgt.id
             WHERE src.type IN ('Organization', 'Person') OR tgt.type IN ('Organization', 'Person')
             ORDER BY e.created_at DESC
             LIMIT 50
@@ -1602,7 +1619,7 @@ def api_graph_summary():
         if include_facts:
             cursor.execute('''
                 SELECT canonical_name, properties
-                FROM entities
+                FROM kg_entities
                 WHERE type = 'Fact'
                 ORDER BY created_at DESC
                 LIMIT 30
@@ -1617,13 +1634,13 @@ def api_graph_summary():
 
         # Get money entities
         cursor.execute('''
-            SELECT canonical_name, properties FROM entities WHERE type = 'Money' LIMIT 20
+            SELECT canonical_name, properties FROM kg_entities WHERE type = 'Money' LIMIT 20
         ''')
         money_entities = [dict(row) for row in cursor.fetchall()]
 
         # Get dates
         cursor.execute('''
-            SELECT canonical_name FROM entities WHERE type = 'Date' LIMIT 20
+            SELECT canonical_name FROM kg_entities WHERE type = 'Date' LIMIT 20
         ''')
         date_entities = [row['canonical_name'] for row in cursor.fetchall()]
 
@@ -1696,18 +1713,19 @@ Be factual and cite the entities mentioned above. Output only the summary text."
 @api.route('/relationship-analysis')
 def api_relationship_analysis():
     """Analyze relationship patterns in the graph."""
+    _ensure_matter()
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         # Get all edges with entity info
         cursor.execute('''
             SELECT e.relation_type,
                    e.source_entity_id, e.target_entity_id,
                    src.type as source_type, tgt.type as target_type
-            FROM edges e
-            LEFT JOIN entities src ON e.source_entity_id = src.id
-            LEFT JOIN entities tgt ON e.target_entity_id = tgt.id
+            FROM kg_edges e
+            LEFT JOIN kg_entities src ON e.source_entity_id = src.id
+            LEFT JOIN kg_entities tgt ON e.target_entity_id = tgt.id
         ''')
         edges = [dict(row) for row in cursor.fetchall()]
 
@@ -1750,7 +1768,7 @@ def api_relationship_analysis():
         # Get entity type distribution
         cursor.execute('''
             SELECT type, COUNT(*) as count
-            FROM entities
+            FROM kg_entities
             GROUP BY type
             ORDER BY count DESC
         ''')
@@ -1776,6 +1794,7 @@ def api_relationship_analysis():
 @api.route('/similar/<entity_id>')
 def api_similar_entities(entity_id):
     """Find entities similar to a given entity using embeddings."""
+    _ensure_matter()
     limit = int(request.args.get('limit', 10))
     threshold = float(request.args.get('threshold', 0.5))
 
@@ -1784,8 +1803,8 @@ def api_similar_entities(entity_id):
         exp = get_exporter()
 
         # Get the entity
-        cursor = exp.conn.cursor()
-        cursor.execute('SELECT id, canonical_name, type, properties FROM entities WHERE id = ?',
+        cursor = exp._get_cursor()
+        cursor.execute('SELECT id, canonical_name, type, properties FROM kg_entities WHERE id = %s',
                        (entity_id,))
         entity_row = cursor.fetchone()
 
@@ -1815,7 +1834,7 @@ def api_similar_entities(entity_id):
             if score < threshold:
                 continue
 
-            cursor.execute('SELECT id, canonical_name, type, properties, confidence FROM entities WHERE id = ?',
+            cursor.execute('SELECT id, canonical_name, type, properties, confidence FROM kg_entities WHERE id = %s',
                            (sim_id,))
             sim_row = cursor.fetchone()
             if sim_row:
@@ -1846,6 +1865,7 @@ def api_similar_entities(entity_id):
 @api.route('/similar-by-name')
 def api_similar_by_name():
     """Find entities similar to a text query using embeddings."""
+    _ensure_matter()
     query = request.args.get('query', '')
     limit = int(request.args.get('limit', 10))
     entity_type = request.args.get('type')
@@ -1869,10 +1889,10 @@ def api_similar_by_name():
             query_embedding, k=limit * 2)  # Get extra for filtering
 
         # Get entity details
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
         results = []
         for sim_id, score in similar:
-            cursor.execute('SELECT id, canonical_name, type, properties, confidence FROM entities WHERE id = ?',
+            cursor.execute('SELECT id, canonical_name, type, properties, confidence FROM kg_entities WHERE id = %s',
                            (sim_id,))
             row = cursor.fetchone()
             if row:
@@ -1906,25 +1926,26 @@ def api_similar_by_name():
 @api.route('/importance')
 def api_importance():
     """Score entities by importance using multiple metrics."""
+    _ensure_matter()
     limit = int(request.args.get('limit', 30))
     entity_type = request.args.get('type')
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         # Get entities
         if entity_type:
-            cursor.execute('SELECT id, canonical_name, type, confidence FROM entities WHERE type = ?',
+            cursor.execute('SELECT id, canonical_name, type, confidence FROM kg_entities WHERE type = %s',
                            (entity_type,))
         else:
             cursor.execute(
-                'SELECT id, canonical_name, type, confidence FROM entities')
+                'SELECT id, canonical_name, type, confidence FROM kg_entities')
         entities = {row['id']: dict(row) for row in cursor.fetchall()}
 
         # Get edges
         cursor.execute(
-            'SELECT source_entity_id, target_entity_id, relation_type FROM edges')
+            'SELECT source_entity_id, target_entity_id, relation_type FROM kg_edges')
         edges = [dict(row) for row in cursor.fetchall()]
 
         # Calculate metrics
@@ -1945,7 +1966,7 @@ def api_importance():
         # Get mention counts
         cursor.execute('''
             SELECT entity_id, COUNT(*) as mention_count
-            FROM mentions
+            FROM kg_mentions
             GROUP BY entity_id
         ''')
         mention_counts = {row['entity_id']: row['mention_count']
@@ -1954,7 +1975,7 @@ def api_importance():
         # Get alias counts (more aliases = more prominent)
         cursor.execute('''
             SELECT entity_id, COUNT(*) as alias_count
-            FROM aliases
+            FROM kg_aliases
             GROUP BY entity_id
         ''')
         alias_counts = {row['entity_id']: row['alias_count']
@@ -2047,6 +2068,7 @@ def api_importance():
 @api.route('/temporal')
 def api_temporal():
     """Query entities and facts by time range."""
+    _ensure_matter()
     start_year = request.args.get('start_year', type=int)
     end_year = request.args.get('end_year', type=int)
     query = request.args.get('query', '')
@@ -2078,6 +2100,7 @@ def api_temporal():
 @api.route('/connections')
 def api_connections():
     """Find all paths/connections between two entities."""
+    _ensure_matter()
     entity1 = request.args.get('entity1', '')
     entity2 = request.args.get('entity2', '')
 
@@ -2147,23 +2170,24 @@ def _find_connected_components(adj: Dict[str, set], entity_ids: set) -> List[set
 @api.route('/clusters')
 def api_clusters():
     """Find entity clusters (connected components) in the graph."""
+    _ensure_matter()
     min_size = int(request.args.get('min_size', 3))
     entity_type = request.args.get('type')  # Optional filter
 
     try:
         exp = get_exporter()
-        cursor = exp.conn.cursor()
+        cursor = exp._get_cursor()
 
         # Get entities
         if entity_type:
             cursor.execute(
-                'SELECT id, canonical_name, type FROM entities WHERE type = ?', (entity_type,))
+                'SELECT id, canonical_name, type FROM kg_entities WHERE type = %s', (entity_type,))
         else:
-            cursor.execute('SELECT id, canonical_name, type FROM entities')
+            cursor.execute('SELECT id, canonical_name, type FROM kg_entities')
         entities = {row['id']: dict(row) for row in cursor.fetchall()}
 
         # Get edges
-        cursor.execute('SELECT source_entity_id, target_entity_id FROM edges')
+        cursor.execute('SELECT source_entity_id, target_entity_id FROM kg_edges')
         edges = [dict(row) for row in cursor.fetchall()]
 
         # Build adjacency and find components
@@ -2216,6 +2240,7 @@ def api_disambiguate():
         name: The entity name to disambiguate
         type: Optional entity type filter
     """
+    _ensure_matter()
     name = request.args.get('name', '')
     entity_type = request.args.get('type', None)
 
@@ -2250,6 +2275,7 @@ def api_resolve_entities():
     Request body:
         entities: List of entity names to resolve
     """
+    _ensure_matter()
     data = request.get_json()
     if not data or 'entities' not in data:
         return jsonify({'error': 'Missing required field: entities'}), 400
@@ -2287,6 +2313,7 @@ def api_narrative_timeline():
         start_year: Optional start year filter
         end_year: Optional end year filter
     """
+    _ensure_matter()
     start_year = request.args.get('start_year', type=int)
     end_year = request.args.get('end_year', type=int)
 
@@ -2315,6 +2342,7 @@ def api_related_questions():
         query: The original query
         answer: The answer that was provided
     """
+    _ensure_matter()
     data = request.get_json()
     if not data or 'query' not in data:
         return jsonify({'error': 'Missing required field: query'}), 400
@@ -2351,6 +2379,7 @@ def api_important_entities():
         types: Comma-separated list of entity types (e.g., "Person,Organization")
         top_k: Number of results (default 20)
     """
+    _ensure_matter()
     types_param = request.args.get('types', '')
     top_k = request.args.get('top_k', 20, type=int)
 
@@ -2385,6 +2414,7 @@ def api_fact_reliability():
     Query params:
         top_k: Number of facts to analyze (default 30)
     """
+    _ensure_matter()
     top_k = request.args.get('top_k', 30, type=int)
 
     try:
@@ -2413,6 +2443,7 @@ def api_inferred_relationships():
     Query params:
         entity: Name of the entity to analyze
     """
+    _ensure_matter()
     entity_name = request.args.get('entity', '')
     if not entity_name:
         return jsonify({'error': 'Missing required parameter: entity'}), 400
@@ -2446,6 +2477,7 @@ def api_resolve_entity_bayesian():
         type: Optional entity type filter
         context: Optional list of context strings
     """
+    _ensure_matter()
     data = request.get_json()
     if not data or 'name' not in data:
         return jsonify({'error': 'Missing required field: name'}), 400

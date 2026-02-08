@@ -26,7 +26,7 @@ class PostgreSQLGraphExporter:
     def __init__(self, connection_string: str, matter_id: str):
         """
         Initialize PostgreSQL exporter.
-        
+
         Args:
             connection_string: PostgreSQL connection string
             matter_id: UUID of the matter
@@ -37,8 +37,27 @@ class PostgreSQLGraphExporter:
         self.conn.autocommit = False
         psycopg2.extras.register_uuid()
 
+    def _ensure_connection(self):
+        """Reconnect if the connection has been closed or dropped."""
+        try:
+            if self.conn.closed:
+                raise psycopg2.InterfaceError("connection already closed")
+            # Actually ping the server to detect stale connections
+            cur = self.conn.cursor()
+            cur.execute("SELECT 1")
+            cur.close()
+            self.conn.rollback()  # Clear any pending transaction state
+        except (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError):
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+            self.conn = psycopg2.connect(self.connection_string)
+            self.conn.autocommit = False
+
     def _get_cursor(self):
-        """Get a cursor with dict-like row factory."""
+        """Get a cursor with dict-like row factory, reconnecting if needed."""
+        self._ensure_connection()
         return self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     def close(self):

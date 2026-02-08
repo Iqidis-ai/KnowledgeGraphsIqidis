@@ -34,6 +34,7 @@ _POSTGRES_URLS = {
     "development": os.getenv("development_POSTGRES_URL"),
     "staging": os.getenv("staging_POSTGRES_URL"),
     "production": os.getenv("production_POSTGRES_URL"),
+    "preview": os.getenv("preview_POSTGRES_URL"),
 }
 
 # Fallback chain: env-specific → generic POSTGRES_URL → DATABASE_URL
