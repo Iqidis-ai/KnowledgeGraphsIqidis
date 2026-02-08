@@ -481,7 +481,7 @@
             border-radius: 12px;
             padding: 25px;
             min-width: 400px;
-            max-width: 500px;
+            max-width: 550px;
             max-height: 80vh;
             overflow-y: auto;
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
@@ -1541,6 +1541,12 @@
             // Clusters button
             document.getElementById('btn-clusters').addEventListener('click', showClustersModal);
 
+            // Analytics button
+            document.getElementById('btn-analytics').addEventListener('click', showAnalyticsModal);
+
+            // Find Path button
+            document.getElementById('btn-path').addEventListener('click', showPathModal);
+
             // Export setup
             setupExport();
         }
@@ -2311,6 +2317,199 @@
                 `;
             } catch (error) {
                 content.innerHTML = `<p style="color: #ea4335;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // ========== ANALYTICS MODAL ==========
+        async function showAnalyticsModal() {
+            const modal = document.getElementById('edit-modal');
+            const title = document.getElementById('modal-title');
+            const content = document.getElementById('modal-content');
+
+            title.textContent = 'Loading Analytics...';
+            content.innerHTML = '<div class="spinner" style="margin: 20px auto;"></div>';
+            modal.classList.add('active');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/analytics?limit=10`);
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const analytics = data.analytics;
+                title.textContent = 'Graph Analytics';
+
+                function renderSection(label, items) {
+                    if (!items || items.length === 0) return '<p style="color: #6b7280;">No data.</p>';
+                    const maxScore = items[0].score;
+                    return items.map(item => `
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                            <span style="min-width: 140px; font-size: 13px; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name}</span>
+                            <span style="background: ${TYPE_COLORS[item.type] || '#9ca3af'}; color: #fff; padding: 1px 6px; border-radius: 4px; font-size: 10px; white-space: nowrap;">${item.type}</span>
+                            <div style="flex: 1; background: #e5e7eb; border-radius: 3px; height: 8px; overflow: hidden;">
+                                <div style="width: ${maxScore > 0 ? (item.score / maxScore * 100) : 0}%; height: 100%; background: #7c3aed; border-radius: 3px;"></div>
+                            </div>
+                            <span style="min-width: 50px; text-align: right; font-size: 11px; color: #6b7280;">${item.score.toFixed(4)}</span>
+                        </div>
+                    `).join('');
+                }
+
+                content.innerHTML = `
+                    <div style="display: flex; gap: 15px; margin-bottom: 18px; color: #6b7280; font-size: 13px;">
+                        <span><strong style="color: #7c3aed;">${data.total_entities}</strong> entities</span>
+                        <span><strong style="color: #10b981;">${data.total_edges}</strong> edges</span>
+                    </div>
+                    <div style="max-height: 450px; overflow-y: auto;">
+                        <h3 style="font-size: 13px; color: #7c3aed; text-transform: uppercase; margin: 0 0 8px;">PageRank</h3>
+                        ${renderSection('PageRank', analytics.pagerank)}
+
+                        <h3 style="font-size: 13px; color: #7c3aed; text-transform: uppercase; margin: 18px 0 8px;">Degree Centrality</h3>
+                        ${renderSection('Degree Centrality', analytics.degree_centrality)}
+
+                        <h3 style="font-size: 13px; color: #7c3aed; text-transform: uppercase; margin: 18px 0 8px;">Betweenness Centrality</h3>
+                        ${renderSection('Betweenness', analytics.betweenness)}
+                    </div>
+                    <div class="modal-actions" style="margin-top: 15px;">
+                        <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+                    </div>
+                `;
+            } catch (error) {
+                content.innerHTML = `<p style="color: #ea4335;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // ========== FIND PATH MODAL ==========
+        let pathSourceId = null;
+        let pathTargetId = null;
+
+        async function showPathModal() {
+            const modal = document.getElementById('edit-modal');
+            const title = document.getElementById('modal-title');
+            const content = document.getElementById('modal-content');
+
+            pathSourceId = null;
+            pathTargetId = null;
+
+            title.textContent = 'Find Shortest Path';
+            content.innerHTML = `
+                <div class="form-group">
+                    <label>Source Entity</label>
+                    <input type="text" id="path-source-search" placeholder="Search for source entity..." autocomplete="off">
+                    <div id="path-source-results" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
+                </div>
+                <div class="form-group">
+                    <label>Target Entity</label>
+                    <input type="text" id="path-target-search" placeholder="Search for target entity..." autocomplete="off">
+                    <div id="path-target-results" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
+                </div>
+                <div id="path-result-area"></div>
+                <div class="modal-actions" style="margin-top: 15px;">
+                    <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button class="btn btn-primary" id="btn-find-path-go">Find Path</button>
+                </div>
+            `;
+            modal.classList.add('active');
+
+            // Wire up source search
+            document.getElementById('path-source-search').addEventListener('input', async (e) => {
+                const q = e.target.value;
+                const resultsDiv = document.getElementById('path-source-results');
+                if (q.length < 2) { resultsDiv.innerHTML = ''; return; }
+                const resp = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`);
+                const results = await resp.json();
+                resultsDiv.innerHTML = results.slice(0, 5).map(r => `
+                    <div class="search-result-item" onclick="selectPathEntity('source', '${r.id}', '${r.name.replace(/'/g, "\\'")}')">
+                        <span class="dot" style="background: ${r.color}"></span>
+                        ${r.name}
+                    </div>
+                `).join('');
+            });
+
+            // Wire up target search
+            document.getElementById('path-target-search').addEventListener('input', async (e) => {
+                const q = e.target.value;
+                const resultsDiv = document.getElementById('path-target-results');
+                if (q.length < 2) { resultsDiv.innerHTML = ''; return; }
+                const resp = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`);
+                const results = await resp.json();
+                resultsDiv.innerHTML = results.slice(0, 5).map(r => `
+                    <div class="search-result-item" onclick="selectPathEntity('target', '${r.id}', '${r.name.replace(/'/g, "\\'")}')">
+                        <span class="dot" style="background: ${r.color}"></span>
+                        ${r.name}
+                    </div>
+                `).join('');
+            });
+
+            // Wire up Find Path button
+            document.getElementById('btn-find-path-go').addEventListener('click', findShortestPath);
+        }
+
+        function selectPathEntity(which, id, name) {
+            if (which === 'source') {
+                pathSourceId = id;
+                document.getElementById('path-source-search').value = name;
+                document.getElementById('path-source-results').innerHTML = '';
+            } else {
+                pathTargetId = id;
+                document.getElementById('path-target-search').value = name;
+                document.getElementById('path-target-results').innerHTML = '';
+            }
+        }
+
+        async function findShortestPath() {
+            if (!pathSourceId || !pathTargetId) {
+                document.getElementById('path-result-area').innerHTML =
+                    '<p style="color: #ea4335; margin-top: 10px;">Please select both a source and target entity.</p>';
+                return;
+            }
+
+            const resultArea = document.getElementById('path-result-area');
+            resultArea.innerHTML = '<div class="spinner" style="margin: 15px auto;"></div>';
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/shortest-path?source=${pathSourceId}&target=${pathTargetId}`);
+                const data = await resp.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                if (!data.found) {
+                    resultArea.innerHTML = '<p style="color: #6b7280; margin-top: 15px; text-align: center;">No path exists between these entities.</p>';
+                    return;
+                }
+
+                // Build path chain visualization
+                let chainHtml = '';
+                for (let i = 0; i < data.nodes.length; i++) {
+                    const node = data.nodes[i];
+                    chainHtml += `
+                        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: #f3f4f6; border-radius: 6px;">
+                            <span style="background: ${TYPE_COLORS[node.type] || '#9ca3af'}; color: #fff; padding: 1px 6px; border-radius: 4px; font-size: 10px;">${node.type}</span>
+                            <span style="font-size: 13px; color: #1f2937;">${node.name}</span>
+                        </div>
+                    `;
+                    if (i < data.edges.length) {
+                        chainHtml += `
+                            <div style="text-align: center; color: #7c3aed; font-size: 11px; padding: 2px 0;">
+                                &#8595; <span style="color: #6b7280;">${data.edges[i].relation}</span>
+                            </div>
+                        `;
+                    }
+                }
+
+                resultArea.innerHTML = `
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e5e7eb;">
+                        <div style="color: #6b7280; font-size: 12px; margin-bottom: 10px;">Path length: <strong style="color: #7c3aed;">${data.path_length}</strong> hop${data.path_length !== 1 ? 's' : ''}</div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            ${chainHtml}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                resultArea.innerHTML = `<p style="color: #ea4335; margin-top: 10px;">Error: ${error.message}</p>`;
             }
         }
 
