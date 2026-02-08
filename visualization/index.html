@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,8 +15,8 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #1a1a2e;
-            color: #eee;
+            background: #f9fafb;
+            color: #1f2937;
             overflow: hidden;
         }
 
@@ -27,15 +28,15 @@
         /* Sidebar */
         #sidebar {
             width: 350px;
-            background: #16213e;
+            background: #ffffff;
             display: flex;
             flex-direction: column;
-            border-right: 1px solid #0f3460;
+            border-right: 1px solid #e5e7eb;
         }
 
         .sidebar-section {
             padding: 15px 20px;
-            border-bottom: 1px solid #0f3460;
+            border-bottom: 1px solid #e5e7eb;
         }
 
         .sidebar-scroll {
@@ -46,26 +47,26 @@
 
         h1 {
             font-size: 1.3rem;
-            color: #4285f4;
+            color: #7c3aed;
         }
 
         h1 span {
             font-size: 0.8rem;
-            color: #666;
+            color: #9ca3af;
             font-weight: normal;
         }
 
         h2 {
             font-size: 0.85rem;
             margin: 15px 0 10px;
-            color: #888;
+            color: #6b7280;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
 
         /* Query Box */
         #query-container {
-            background: #1a1a2e;
+            background: #f3f4f6;
             border-radius: 8px;
             padding: 10px;
         }
@@ -73,10 +74,10 @@
         #query-input {
             width: 100%;
             padding: 12px 15px;
-            border: 1px solid #0f3460;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
-            background: #16213e;
-            color: #eee;
+            background: #ffffff;
+            color: #1f2937;
             font-size: 14px;
             resize: none;
             min-height: 60px;
@@ -84,14 +85,14 @@
 
         #query-input:focus {
             outline: none;
-            border-color: #4285f4;
+            border-color: #7c3aed;
         }
 
         #query-btn {
             width: 100%;
             margin-top: 10px;
             padding: 10px;
-            background: #4285f4;
+            background: #7c3aed;
             border: none;
             border-radius: 8px;
             color: white;
@@ -104,18 +105,18 @@
         }
 
         #query-btn:hover {
-            background: #3367d6;
+            background: #6d28d9;
         }
 
         #query-btn:disabled {
-            background: #444;
+            background: #d1d5db;
             cursor: not-allowed;
         }
 
         #query-answer {
             margin-top: 15px;
             padding: 15px;
-            background: #0f3460;
+            background: #f3f4f6;
             border-radius: 8px;
             font-size: 13px;
             line-height: 1.5;
@@ -129,7 +130,7 @@
         }
 
         #query-answer h3 {
-            color: #4285f4;
+            color: #7c3aed;
             margin-bottom: 10px;
             font-size: 14px;
         }
@@ -137,9 +138,9 @@
         #query-stats {
             margin-top: 10px;
             padding-top: 10px;
-            border-top: 1px solid #1a1a2e;
+            border-top: 1px solid #e5e7eb;
             font-size: 11px;
-            color: #888;
+            color: #9ca3af;
         }
 
         /* Search */
@@ -150,16 +151,16 @@
         #search {
             width: 100%;
             padding: 10px 15px;
-            border: 1px solid #0f3460;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
-            background: #1a1a2e;
-            color: #eee;
+            background: #ffffff;
+            color: #1f2937;
             font-size: 14px;
         }
 
         #search:focus {
             outline: none;
-            border-color: #4285f4;
+            border-color: #7c3aed;
         }
 
         #search-results {
@@ -167,8 +168,8 @@
             top: 100%;
             left: 0;
             right: 0;
-            background: #16213e;
-            border: 1px solid #0f3460;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
             max-height: 300px;
             overflow-y: auto;
@@ -179,14 +180,14 @@
         .search-item {
             padding: 10px 15px;
             cursor: pointer;
-            border-bottom: 1px solid #0f3460;
+            border-bottom: 1px solid #e5e7eb;
             display: flex;
             align-items: center;
             gap: 10px;
         }
 
         .search-item:hover {
-            background: #0f3460;
+            background: #f3f4f6;
         }
 
         .search-item .dot {
@@ -227,7 +228,7 @@
         }
 
         .filter-item .count {
-            color: #666;
+            color: #9ca3af;
             font-size: 12px;
         }
 
@@ -240,19 +241,19 @@
         }
 
         .stat-label {
-            color: #888;
+            color: #9ca3af;
         }
 
         .stat-value {
             font-weight: bold;
-            color: #4285f4;
+            color: #7c3aed;
         }
 
         /* Entity Details */
         #entity-details {
             margin-top: 15px;
             padding: 15px;
-            background: #1a1a2e;
+            background: #f3f4f6;
             border-radius: 8px;
             display: none;
         }
@@ -283,11 +284,11 @@
         .connection-item {
             padding: 5px 0;
             font-size: 12px;
-            border-bottom: 1px solid #0f3460;
+            border-bottom: 1px solid #e5e7eb;
         }
 
         .connection-item .relation {
-            color: #888;
+            color: #9ca3af;
             font-size: 10px;
         }
 
@@ -303,7 +304,7 @@
 
         .fact-item {
             padding: 8px 10px;
-            background: #0f3460;
+            background: #f3f4f6;
             border-radius: 6px;
             margin-bottom: 8px;
             font-size: 12px;
@@ -314,7 +315,7 @@
         #graph-container {
             flex: 1;
             position: relative;
-            background: #1a1a2e;
+            background: #f9fafb;
         }
 
         #graph {
@@ -333,21 +334,22 @@
 
         .control-btn {
             padding: 8px 15px;
-            background: #16213e;
-            border: 1px solid #0f3460;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
-            color: #eee;
+            color: #374151;
             cursor: pointer;
             font-size: 13px;
         }
 
         .control-btn:hover {
-            background: #0f3460;
+            background: #f3f4f6;
         }
 
         .control-btn.active {
-            background: #4285f4;
-            border-color: #4285f4;
+            background: #7c3aed;
+            border-color: #7c3aed;
+            color: white;
         }
 
         /* View Mode Toggle */
@@ -356,35 +358,35 @@
             top: 20px;
             left: 20px;
             display: flex;
-            background: #16213e;
+            background: #ffffff;
             border-radius: 8px;
             overflow: hidden;
-            border: 1px solid #0f3460;
+            border: 1px solid #e5e7eb;
         }
 
         .view-btn {
             padding: 8px 15px;
             background: transparent;
             border: none;
-            color: #888;
+            color: #9ca3af;
             cursor: pointer;
             font-size: 13px;
         }
 
         .view-btn:hover {
-            color: #eee;
+            color: #1f2937;
         }
 
         .view-btn.active {
-            background: #4285f4;
+            background: #7c3aed;
             color: white;
         }
 
         /* Tooltip */
         #tooltip {
             position: absolute;
-            background: #16213e;
-            border: 1px solid #0f3460;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
             padding: 10px 15px;
             pointer-events: none;
@@ -392,6 +394,7 @@
             transition: opacity 0.2s;
             max-width: 300px;
             z-index: 1000;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
 
         #tooltip.active {
@@ -406,7 +409,7 @@
 
         #tooltip .type {
             font-size: 11px;
-            color: #888;
+            color: #9ca3af;
         }
 
         /* Loading */
@@ -421,15 +424,17 @@
         .spinner {
             width: 40px;
             height: 40px;
-            border: 3px solid #0f3460;
-            border-top-color: #4285f4;
+            border: 3px solid #e5e7eb;
+            border-top-color: #7c3aed;
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin: 0 auto 15px;
         }
 
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         /* Sample Queries */
@@ -440,16 +445,16 @@
         .sample-query {
             display: inline-block;
             padding: 5px 10px;
-            background: #0f3460;
+            background: #f3f4f6;
             border-radius: 15px;
             font-size: 11px;
             margin: 3px;
             cursor: pointer;
-            color: #aaa;
+            color: #6b7280;
         }
 
         .sample-query:hover {
-            background: #4285f4;
+            background: #7c3aed;
             color: white;
         }
 
@@ -460,7 +465,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0,0,0,0.7);
+            background: rgba(0, 0, 0, 0.4);
             display: none;
             align-items: center;
             justify-content: center;
@@ -472,18 +477,19 @@
         }
 
         .modal-box {
-            background: #16213e;
+            background: #ffffff;
             border-radius: 12px;
             padding: 25px;
             min-width: 400px;
             max-width: 500px;
             max-height: 80vh;
             overflow-y: auto;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
         }
 
         .modal-box h2 {
             margin: 0 0 20px;
-            color: #eee;
+            color: #1f2937;
             font-size: 1.2rem;
         }
 
@@ -493,7 +499,7 @@
             right: 20px;
             background: none;
             border: none;
-            color: #888;
+            color: #9ca3af;
             font-size: 24px;
             cursor: pointer;
         }
@@ -505,7 +511,7 @@
         .form-group label {
             display: block;
             margin-bottom: 5px;
-            color: #888;
+            color: #6b7280;
             font-size: 12px;
             text-transform: uppercase;
         }
@@ -514,17 +520,17 @@
         .form-group select {
             width: 100%;
             padding: 10px 12px;
-            border: 1px solid #0f3460;
+            border: 1px solid #e5e7eb;
             border-radius: 6px;
-            background: #1a1a2e;
-            color: #eee;
+            background: #f9fafb;
+            color: #1f2937;
             font-size: 14px;
         }
 
         .form-group input:focus,
         .form-group select:focus {
             outline: none;
-            border-color: #4285f4;
+            border-color: #7c3aed;
         }
 
         .modal-actions {
@@ -543,21 +549,21 @@
         }
 
         .btn-primary {
-            background: #4285f4;
+            background: #7c3aed;
             color: white;
         }
 
         .btn-primary:hover {
-            background: #3367d6;
+            background: #6d28d9;
         }
 
         .btn-secondary {
-            background: #444;
-            color: #eee;
+            background: #f3f4f6;
+            color: #374151;
         }
 
         .btn-secondary:hover {
-            background: #555;
+            background: #e5e7eb;
         }
 
         .btn-danger {
@@ -575,17 +581,17 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            border-bottom: 1px solid #0f3460;
+            border-bottom: 1px solid #e5e7eb;
         }
 
         .search-result-item:hover {
-            background: #0f3460;
+            background: #f3f4f6;
         }
 
         #edge-target-results,
         #merge-target-results {
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
             border-radius: 6px;
             margin-top: 5px;
             max-height: 150px;
@@ -602,31 +608,31 @@
         #nl-edit-container {
             margin-top: 15px;
             padding: 10px;
-            background: #1a1a2e;
+            background: #fef3c7;
             border-radius: 8px;
-            border: 1px dashed #ff6d01;
+            border: 1px dashed #f59e0b;
         }
 
         #nl-edit-input {
             width: 100%;
             padding: 10px 12px;
-            border: 1px solid #0f3460;
+            border: 1px solid #e5e7eb;
             border-radius: 6px;
-            background: #16213e;
-            color: #eee;
+            background: #ffffff;
+            color: #1f2937;
             font-size: 13px;
         }
 
         #nl-edit-input:focus {
             outline: none;
-            border-color: #ff6d01;
+            border-color: #f59e0b;
         }
 
         #nl-edit-btn {
             width: 100%;
             margin-top: 8px;
             padding: 8px;
-            background: #ff6d01;
+            background: #f59e0b;
             border: none;
             border-radius: 6px;
             color: white;
@@ -635,31 +641,31 @@
         }
 
         #nl-edit-btn:hover {
-            background: #e55d00;
+            background: #d97706;
         }
 
         #nl-edit-btn:disabled {
-            background: #666;
+            background: #d1d5db;
             cursor: not-allowed;
         }
 
         .nl-edit-examples {
             margin-top: 8px;
             font-size: 10px;
-            color: #666;
+            color: #9ca3af;
         }
 
         .nl-edit-example {
             display: inline-block;
             padding: 3px 8px;
             margin: 2px;
-            background: #0f3460;
+            background: #f3f4f6;
             border-radius: 10px;
             cursor: pointer;
         }
 
         .nl-edit-example:hover {
-            background: #ff6d01;
+            background: #f59e0b;
             color: white;
         }
 
@@ -690,25 +696,25 @@
             position: absolute;
             bottom: 20px;
             left: 20px;
-            background: #16213e;
-            border: 1px solid #0f3460;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
             padding: 10px;
         }
 
         #layout-container label {
             font-size: 11px;
-            color: #888;
+            color: #6b7280;
             text-transform: uppercase;
         }
 
         #layout-select {
             margin-top: 5px;
             padding: 6px 10px;
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
             border-radius: 6px;
-            color: #eee;
+            color: #1f2937;
             font-size: 12px;
             cursor: pointer;
         }
@@ -723,8 +729,8 @@
             position: absolute;
             bottom: 20px;
             right: 20px;
-            background: #16213e;
-            border: 1px solid #0f3460;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
             padding: 10px 15px;
             font-size: 11px;
@@ -732,7 +738,7 @@
 
         #legend h4 {
             margin: 0 0 8px;
-            color: #888;
+            color: #6b7280;
             font-size: 10px;
             text-transform: uppercase;
         }
@@ -759,6 +765,7 @@
         }
     </style>
 </head>
+
 <body>
     <div id="app">
         <div id="sidebar">
@@ -774,7 +781,8 @@
                         <span>Query Graph</span>
                     </button>
                     <div class="sample-queries">
-                        <span class="sample-query" data-query="Who are the main parties in this case?">Main parties</span>
+                        <span class="sample-query" data-query="Who are the main parties in this case?">Main
+                            parties</span>
                         <span class="sample-query" data-query="What is the dispute about?">About dispute</span>
                         <span class="sample-query" data-query="What are the key dates?">Key dates</span>
                         <span class="sample-query" data-query="Tell me about Gulfstream">About Gulfstream</span>
@@ -860,17 +868,33 @@
                 <button class="control-btn" id="btn-facts">Show Facts</button>
                 <button class="control-btn" id="btn-edit">Edit Mode</button>
                 <button class="control-btn" id="btn-add-entity">+ Entity</button>
-                <button class="control-btn" id="btn-duplicates" style="background: #9c27b0; border-color: #9c27b0;">Find Duplicates</button>
-                <button class="control-btn" id="btn-timeline" style="background: #00897b; border-color: #00897b;">Timeline</button>
-                <button class="control-btn" id="btn-clusters" style="background: #ff5722; border-color: #ff5722;">Clusters</button>
-                <button class="control-btn" id="btn-analytics" style="background: #673ab7; border-color: #673ab7;">Analytics</button>
-                <button class="control-btn" id="btn-path" style="background: #2196f3; border-color: #2196f3;">Find Path</button>
+                <button class="control-btn" id="btn-duplicates"
+                    style="background: #7c3aed; border-color: #7c3aed; color: white;">Find
+                    Duplicates</button>
+                <button class="control-btn" id="btn-timeline"
+                    style="background: #059669; border-color: #059669; color: white;">Timeline</button>
+                <button class="control-btn" id="btn-clusters"
+                    style="background: #ea580c; border-color: #ea580c; color: white;">Clusters</button>
+                <button class="control-btn" id="btn-analytics"
+                    style="background: #7c3aed; border-color: #7c3aed; color: white;">Analytics</button>
+                <button class="control-btn" id="btn-path"
+                    style="background: #6d28d9; border-color: #6d28d9; color: white;">Find
+                    Path</button>
                 <div class="export-dropdown" style="position: relative; display: inline-block;">
-                    <button class="control-btn" id="btn-export" style="background: #5c6bc0; border-color: #5c6bc0;">Export</button>
-                    <div id="export-menu" style="display: none; position: absolute; top: 100%; right: 0; background: #16213e; border: 1px solid #0f3460; border-radius: 8px; min-width: 120px; z-index: 1000;">
-                        <div class="export-option" data-format="json" style="padding: 10px 15px; cursor: pointer; border-bottom: 1px solid #0f3460;">JSON</div>
-                        <div class="export-option" data-format="csv" style="padding: 10px 15px; cursor: pointer; border-bottom: 1px solid #0f3460;">CSV (Zip)</div>
-                        <div class="export-option" data-format="graphml" style="padding: 10px 15px; cursor: pointer;">GraphML</div>
+                    <button class="control-btn" id="btn-export"
+                        style="background: #6366f1; border-color: #6366f1; color: white;">Export</button>
+                    <div id="export-menu"
+                        style="display: none; position: absolute; top: 100%; right: 0; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; min-width: 120px; z-index: 1000; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                        <div class="export-option" data-format="json"
+                            style="padding: 10px 15px; cursor: pointer; border-bottom: 1px solid #e5e7eb; color: #374151;">
+                            JSON</div>
+                        <div class="export-option" data-format="csv"
+                            style="padding: 10px 15px; cursor: pointer; border-bottom: 1px solid #e5e7eb; color: #374151;">
+                            CSV (Zip)
+                        </div>
+                        <div class="export-option" data-format="graphml"
+                            style="padding: 10px 15px; cursor: pointer; color: #374151;">
+                            GraphML</div>
                     </div>
                 </div>
             </div>
@@ -921,12 +945,12 @@
         const API_BASE = '';  // Same origin
 
         // Iqidis: inject matter_id from URL into all API requests
-        (function() {
+        (function () {
             const params = new URLSearchParams(window.location.search);
             const matterId = params.get('matter_id');
             if (!matterId) return;
             const origFetch = window.fetch;
-            window.fetch = function(url, opts) {
+            window.fetch = function (url, opts) {
                 if (typeof url === 'string' && url.includes('/api/')) {
                     url = url + (url.includes('?') ? '&' : '?') + 'matter_id=' + encodeURIComponent(matterId);
                 }
@@ -935,7 +959,7 @@
                         const j = JSON.parse(opts.body);
                         if (!j.matter_id) j.matter_id = matterId;
                         opts = { ...opts, body: JSON.stringify(j) };
-                    } catch (_) {}
+                    } catch (_) { }
                 }
                 return origFetch.call(this, url, opts);
             };
@@ -953,14 +977,14 @@
 
         // Type colors
         const TYPE_COLORS = {
-            'Organization': '#4285f4',
-            'Person': '#ea4335',
-            'Document': '#fbbc04',
-            'Date': '#34a853',
-            'Money': '#ff6d01',
-            'Location': '#46bdc6',
-            'Reference': '#9c27b0',
-            'Fact': '#607d8b'
+            'Organization': '#7c3aed',
+            'Person': '#ef4444',
+            'Document': '#f59e0b',
+            'Date': '#10b981',
+            'Money': '#f97316',
+            'Location': '#06b6d4',
+            'Reference': '#8b5cf6',
+            'Fact': '#6b7280'
         };
 
         // Confidence ring colors
@@ -1073,7 +1097,7 @@
                 .attr('markerHeight', 5)
                 .append('path')
                 .attr('d', 'M 0,-5 L 10,0 L 0,5')
-                .attr('fill', '#444');
+                .attr('fill', '#d1d5db');
 
             // Simulation
             simulation = d3.forceSimulation()
@@ -1123,7 +1147,7 @@
 
             const linkEnter = link.enter().append('line')
                 .attr('class', 'link')
-                .attr('stroke', '#333')
+                .attr('stroke', '#d1d5db')
                 .attr('stroke-width', 1)
                 .attr('marker-end', 'url(#arrowhead)');
 
@@ -1169,7 +1193,7 @@
             nodeEnter.append('text')
                 .attr('dx', 15)
                 .attr('dy', 4)
-                .attr('fill', '#aaa')
+                .attr('fill', '#374151')
                 .attr('font-size', '10px')
                 .text(d => d.name);
 
@@ -1271,7 +1295,7 @@
             `).join('');
 
             if (connections.length > 15) {
-                container.innerHTML += `<div class="connection-item" style="color: #666;">... and ${connections.length - 15} more</div>`;
+                container.innerHTML += `<div class="connection-item" style="color: #9ca3af;">... and ${connections.length - 15} more</div>`;
             }
 
             // Add action buttons
@@ -2109,20 +2133,20 @@
                 }
 
                 content.innerHTML = `
-                    <p style="margin-bottom: 15px; color: #888;">Select pairs to merge. The longer name will be kept.</p>
+                    <p style="margin-bottom: 15px; color: #6b7280;">Select pairs to merge. The longer name will be kept.</p>
                     <div id="duplicates-list" style="max-height: 400px; overflow-y: auto;">
                         ${data.duplicates.map((d, i) => `
-                            <div class="duplicate-item" style="padding: 10px; background: #1a1a2e; border-radius: 6px; margin-bottom: 8px;">
+                            <div class="duplicate-item" style="padding: 10px; background: #f3f4f6; border-radius: 6px; margin-bottom: 8px;">
                                 <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
                                     <input type="checkbox" class="dup-checkbox" data-idx="${i}"
                                            data-keep="${d.entity1.name.length >= d.entity2.name.length ? d.entity1.id : d.entity2.id}"
                                            data-merge="${d.entity1.name.length >= d.entity2.name.length ? d.entity2.id : d.entity1.id}">
                                     <span style="flex: 1;">
                                         <span style="color: ${TYPE_COLORS[d.entity1.type] || '#999'}">${d.entity1.name}</span>
-                                        <span style="color: #666; margin: 0 5px;">↔</span>
+                                        <span style="color: #9ca3af; margin: 0 5px;">↔</span>
                                         <span style="color: ${TYPE_COLORS[d.entity2.type] || '#999'}">${d.entity2.name}</span>
                                     </span>
-                                    <span style="color: #888; font-size: 11px;">${(d.similarity * 100).toFixed(0)}%</span>
+                                    <span style="color: #6b7280; font-size: 11px;">${(d.similarity * 100).toFixed(0)}%</span>
                                 </label>
                             </div>
                         `).join('')}
@@ -2191,34 +2215,34 @@
                 title.textContent = `Timeline (${data.total} events)`;
 
                 if (data.timeline.length === 0) {
-                    content.innerHTML = '<p style="color: #888;">No dated events found in the graph.</p>';
+                    content.innerHTML = '<p style="color: #6b7280;">No dated events found in the graph.</p>';
                     return;
                 }
 
                 const typeColors = {
-                    'date': '#4285f4',
-                    'deadline': '#ea4335',
-                    'key_term': '#fbbc04',
-                    'fact': '#34a853',
-                    'obligation': '#ff6d01'
+                    'date': '#7c3aed',
+                    'deadline': '#ef4444',
+                    'key_term': '#f59e0b',
+                    'fact': '#10b981',
+                    'obligation': '#f97316'
                 };
 
                 content.innerHTML = `
                     <div id="timeline-container" style="max-height: 500px; overflow-y: auto; padding-right: 10px;">
                         ${data.timeline.map(entry => `
-                            <div class="timeline-item" style="display: flex; margin-bottom: 15px; border-left: 3px solid ${typeColors[entry.type] || '#666'}; padding-left: 15px;">
-                                <div style="min-width: 100px; color: ${entry.date_parsed ? '#4285f4' : '#666'};">
+                            <div class="timeline-item" style="display: flex; margin-bottom: 15px; border-left: 3px solid ${typeColors[entry.type] || '#9ca3af'}; padding-left: 15px;">
+                                <div style="min-width: 100px; color: ${entry.date_parsed ? '#7c3aed' : '#9ca3af'};">
                                     ${entry.date_parsed || 'Undated'}
                                 </div>
                                 <div style="flex: 1;">
-                                    <div style="color: ${typeColors[entry.type] || '#999'}; font-size: 11px; text-transform: uppercase; margin-bottom: 3px;">
+                                    <div style="color: ${typeColors[entry.type] || '#6b7280'}; font-size: 11px; text-transform: uppercase; margin-bottom: 3px;">
                                         ${entry.type}
                                     </div>
-                                    <div style="color: #eee;">
+                                    <div style="color: #1f2937;">
                                         ${entry.description.substring(0, 150)}${entry.description.length > 150 ? '...' : ''}
                                     </div>
                                     ${entry.related_entities && entry.related_entities.length > 0 ? `
-                                        <div style="margin-top: 5px; font-size: 11px; color: #888;">
+                                        <div style="margin-top: 5px; font-size: 11px; color: #6b7280;">
                                             Related: ${entry.related_entities.slice(0, 3).map(r => r.name).join(', ')}
                                         </div>
                                     ` : ''}
@@ -2256,26 +2280,26 @@
                 title.textContent = `Entity Clusters (${data.total_clusters} groups)`;
 
                 content.innerHTML = `
-                    <div style="margin-bottom: 15px; color: #888;">
-                        <span style="color: #4285f4;">${data.total_entities}</span> total entities |
-                        <span style="color: #34a853;">${data.total_clusters}</span> clusters |
+                    <div style="margin-bottom: 15px; color: #6b7280;">
+                        <span style="color: #7c3aed;">${data.total_entities}</span> total entities |
+                        <span style="color: #10b981;">${data.total_clusters}</span> clusters |
                         <span style="color: #fbbc04;">${data.isolated_entities}</span> isolated
                     </div>
                     <div id="clusters-list" style="max-height: 450px; overflow-y: auto;">
                         ${data.clusters.map((cluster, i) => `
-                            <div class="cluster-item" style="background: #1a1a2e; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+                            <div class="cluster-item" style="background: #f3f4f6; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
                                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                                    <span style="color: #4285f4; font-weight: bold;">Cluster ${i + 1}</span>
-                                    <span style="color: #888;">${cluster.size} entities</span>
+                                    <span style="color: #7c3aed; font-weight: bold;">Cluster ${i + 1}</span>
+                                    <span style="color: #6b7280;">${cluster.size} entities</span>
                                 </div>
                                 <div style="margin-bottom: 8px;">
                                     ${Object.entries(cluster.types).map(([type, count]) => `
-                                        <span style="background: ${TYPE_COLORS[type] || '#666'}; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-right: 5px;">
+                                        <span style="background: ${TYPE_COLORS[type] || '#9ca3af'}; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-right: 5px;">
                                             ${type}: ${count}
                                         </span>
                                     `).join('')}
                                 </div>
-                                <div style="color: #ccc; font-size: 12px;">
+                                <div style="color: #374151; font-size: 12px;">
                                     ${cluster.sample_names.map(n => n.substring(0, 30)).join(' | ')}${cluster.size > 5 ? ' | ...' : ''}
                                 </div>
                             </div>
@@ -2306,7 +2330,7 @@
 
             document.querySelectorAll('.export-option').forEach(option => {
                 option.addEventListener('mouseover', () => {
-                    option.style.background = '#0f3460';
+                    option.style.background = '#f3f4f6';
                 });
                 option.addEventListener('mouseout', () => {
                     option.style.background = 'transparent';
@@ -2365,4 +2389,5 @@
         init();
     </script>
 </body>
+
 </html>
