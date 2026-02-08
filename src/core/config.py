@@ -35,10 +35,10 @@ POSTGRES_URL = (
 # Embedding Configuration
 EMBEDDING_DIMENSION = 768  # Using 768 for gemini-embedding-001 with output_dimensionality
 
-# Paths
+# Paths (kept for backwards compatibility, but not used for KG storage anymore)
 # Navigate from src/core/config.py up to project root
 BASE_DIR = Path(__file__).parent.parent.parent
-MATTERS_DIR = BASE_DIR / "matters"
+MATTERS_DIR = BASE_DIR / "matters"  # DEPRECATED: KG now uses PostgreSQL, not local files
 
 # Entity Types
 ENTITY_TYPES = [

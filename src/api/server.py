@@ -21,9 +21,9 @@ from flask_cors import CORS
 from google import genai
 
 # Import from core
-from ..core import KnowledgeGraph, GEMINI_API_KEY, MATTERS_DIR
-from ..core.storage.database import Database
-from ..visualization.graph_exporter import GraphExporter
+from ..core import KnowledgeGraph, GEMINI_API_KEY, POSTGRES_URL
+from ..core.storage.postgres_database import PostgreSQLDatabase
+from ..visualization.postgres_graph_exporter import PostgreSQLGraphExporter
 
 
 # Create API blueprint
@@ -32,7 +32,7 @@ api = Blueprint('api', __name__, url_prefix='/api')
 
 # Global instances - initialized per matter
 _kg: Optional[KnowledgeGraph] = None
-_exporter: Optional[GraphExporter] = None
+_exporter: Optional[PostgreSQLGraphExporter] = None
 _matter_name: str = "default"
 _nl_edit_client = None
 _nl_edit_model = None
@@ -43,9 +43,9 @@ def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY):
     global _kg, _exporter, _matter_name, _nl_edit_client, _nl_edit_model
     _matter_name = matter_name
     _kg = KnowledgeGraph(matter_name, api_key=api_key)
-
-    db_path = MATTERS_DIR / matter_name / "graph.db"
-    _exporter = GraphExporter(str(db_path))
+    
+    # Initialize PostgreSQL exporter
+    _exporter = PostgreSQLGraphExporter(POSTGRES_URL, matter_name)
 
     # Configure NL edit model
     _nl_edit_client = genai.Client(api_key=api_key)
@@ -69,8 +69,8 @@ def get_kg() -> KnowledgeGraph:
     return _kg
 
 
-def get_exporter() -> GraphExporter:
-    """Get the GraphExporter instance."""
+def get_exporter() -> PostgreSQLGraphExporter:
+    """Get the PostgreSQLGraphExporter instance."""
     if _exporter is None:
         raise RuntimeError("API not initialized. Call init_matter() first.")
     return _exporter
@@ -95,7 +95,7 @@ def api_list_matters():
 
 @api.route('/extract-from-iqidis', methods=['POST'])
 def api_extract_from_iqidis():
-    """Extract KG from Iqidis documents. Stores graph locally (SQLite)."""
+    """Extract KG from Iqidis documents. Stores graph in PostgreSQL."""
     try:
         data = request.get_json() or {}
         matter_id = data.get('matter_id')

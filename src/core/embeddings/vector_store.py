@@ -1,10 +1,13 @@
 """
-FAISS-based vector store for entity embeddings.
+FAISS-based vector store for entity embeddings with PostgreSQL backend.
 """
 import numpy as np
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict, Any, TYPE_CHECKING
 import json
+
+if TYPE_CHECKING:
+    from ..storage.postgres_database import PostgreSQLDatabase
 
 try:
     import faiss
@@ -15,51 +18,56 @@ from ..config import EMBEDDING_DIMENSION
 
 
 class VectorStore:
-    """FAISS-based vector store for similarity search."""
+    """FAISS-based vector store for similarity search with PostgreSQL backend."""
 
-    def __init__(self, store_path: str, dimension: int = EMBEDDING_DIMENSION):
-        self.store_path = Path(store_path)
+    def __init__(self, db: 'PostgreSQLDatabase', matter_id: str, dimension: int = EMBEDDING_DIMENSION):
+        """
+        Initialize vector store with PostgreSQL backend.
+        
+        Args:
+            db: PostgreSQL database instance
+            matter_id: UUID of the matter
+            dimension: Embedding dimension
+        """
+        self.db = db
+        self.matter_id = matter_id
         self.dimension = dimension
-        self.index_path = self.store_path / "embeddings.faiss"
-        self.mapping_path = self.store_path / "id_mapping.json"
-
-        self.store_path.mkdir(parents=True, exist_ok=True)
 
         # ID to index mapping
         self.id_to_idx: Dict[str, int] = {}
         self.idx_to_id: Dict[int, str] = {}
 
-        # Initialize or load index
+        # Initialize FAISS index
         if faiss is not None:
-            self._init_faiss()
+            self.index = faiss.IndexFlatL2(self.dimension)
+            self._load_from_db()
         else:
             self.index = None
             self._fallback_vectors: Dict[str, np.ndarray] = {}
+            self._load_fallback_from_db()
 
-    def _init_faiss(self):
-        """Initialize FAISS index."""
-        if self.index_path.exists():
-            self.index = faiss.read_index(str(self.index_path))
-            self._load_mapping()
-        else:
-            # Use L2 distance (Euclidean) - suitable for normalized embeddings
-            self.index = faiss.IndexFlatL2(self.dimension)
+    def _load_from_db(self):
+        """Load embeddings from PostgreSQL into FAISS index."""
+        if self.index is None:
+            return
+        
+        embeddings = self.db.get_all_embeddings()
+        for entity_id, vector_bytes in embeddings:
+            # Convert bytes to numpy array
+            vector = np.frombuffer(vector_bytes, dtype=np.float32)
+            if vector.shape[0] == self.dimension:
+                idx = self.index.ntotal
+                self.index.add(vector.reshape(1, -1))
+                self.id_to_idx[entity_id] = idx
+                self.idx_to_id[idx] = entity_id
 
-    def _load_mapping(self):
-        """Load ID mapping from disk."""
-        if self.mapping_path.exists():
-            with open(self.mapping_path, 'r') as f:
-                data = json.load(f)
-                self.id_to_idx = data.get("id_to_idx", {})
-                self.idx_to_id = {int(k): v for k, v in data.get("idx_to_id", {}).items()}
-
-    def _save_mapping(self):
-        """Save ID mapping to disk."""
-        with open(self.mapping_path, 'w') as f:
-            json.dump({
-                "id_to_idx": self.id_to_idx,
-                "idx_to_id": {str(k): v for k, v in self.idx_to_id.items()}
-            }, f)
+    def _load_fallback_from_db(self):
+        """Load embeddings into fallback dictionary (when FAISS not available)."""
+        embeddings = self.db.get_all_embeddings()
+        for entity_id, vector_bytes in embeddings:
+            vector = np.frombuffer(vector_bytes, dtype=np.float32)
+            if vector.shape[0] == self.dimension:
+                self._fallback_vectors[entity_id] = vector
 
     def add(self, entity_id: str, embedding: np.ndarray):
         """Add an embedding for an entity."""
@@ -72,6 +80,11 @@ class VectorStore:
         if norm > 0:
             embedding = embedding / norm
 
+        # Store in PostgreSQL
+        vector_bytes = embedding.tobytes()
+        self.db.store_embedding(entity_id, vector_bytes)
+
+        # Add to FAISS index
         if faiss is not None and self.index is not None:
             idx = self.index.ntotal
             self.index.add(embedding.reshape(1, -1))
@@ -124,25 +137,31 @@ class VectorStore:
             return results[:k]
 
     def remove(self, entity_id: str):
-        """Remove an entity's embedding (marks for rebuild)."""
-        # FAISS doesn't support efficient deletion, so we mark for rebuild
+        """Remove an entity's embedding (PostgreSQL handles this via CASCADE)."""
+        # FAISS doesn't support efficient deletion
+        # The database CASCADE will handle deletion automatically
         if entity_id in self.id_to_idx:
             del self.id_to_idx[entity_id]
-        if entity_id in self._fallback_vectors:
+        if hasattr(self, '_fallback_vectors') and entity_id in self._fallback_vectors:
             del self._fallback_vectors[entity_id]
 
     def save(self):
-        """Save index to disk."""
-        if faiss is not None and self.index is not None:
-            faiss.write_index(self.index, str(self.index_path))
-        self._save_mapping()
+        """Save is handled automatically by PostgreSQL - this is a no-op for compatibility."""
+        pass
 
     def load(self):
-        """Load index from disk."""
-        if faiss is not None:
-            if self.index_path.exists():
-                self.index = faiss.read_index(str(self.index_path))
-                self._load_mapping()
+        """Reload from PostgreSQL."""
+        self.id_to_idx = {}
+        self.idx_to_id = {}
+        
+        if faiss is not None and self.index is not None:
+            # Reset and reload FAISS index
+            self.index = faiss.IndexFlatL2(self.dimension)
+            self._load_from_db()
+        else:
+            # Reset and reload fallback
+            self._fallback_vectors = {}
+            self._load_fallback_from_db()
 
     def get_count(self) -> int:
         """Get number of stored embeddings."""
@@ -152,7 +171,7 @@ class VectorStore:
 
     def has_entity(self, entity_id: str) -> bool:
         """Check if entity has an embedding."""
-        return entity_id in self.id_to_idx or entity_id in self._fallback_vectors
+        return entity_id in self.id_to_idx or (hasattr(self, '_fallback_vectors') and entity_id in self._fallback_vectors)
 
 
 class EmbeddingGenerator:

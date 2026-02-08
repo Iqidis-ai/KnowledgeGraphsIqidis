@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 import re
 
-from ..storage.database import Database
+from ..storage.postgres_database import PostgreSQLDatabase as Database
 from ..storage.models import Entity, Edge
 
 

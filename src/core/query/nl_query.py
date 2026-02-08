@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from google import genai
 
-from ..storage.database import Database
+from ..storage.postgres_database import PostgreSQLDatabase as Database
 from ..storage.models import Entity, Edge
 from ..embeddings.vector_store import VectorStore, EmbeddingGenerator
 from ..config import GEMINI_API_KEY, GEMINI_MODEL

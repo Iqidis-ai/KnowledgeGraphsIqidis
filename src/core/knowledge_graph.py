@@ -10,12 +10,12 @@ Provides a unified interface for:
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from .storage.database import Database
+from .storage.postgres_database import PostgreSQLDatabase
 from .storage.models import Entity, Edge, Mention, Alias
 from .embeddings.vector_store import VectorStore
 from .extraction.extraction_pipeline import ExtractionPipeline
 from .query.nl_query import NLQueryEngine, QueryResult
-from .config import GEMINI_API_KEY, MATTERS_DIR
+from .config import GEMINI_API_KEY, POSTGRES_URL
 
 
 class KnowledgeGraph:
@@ -25,19 +25,19 @@ class KnowledgeGraph:
         """Initialize a knowledge graph for a specific matter.
 
         Args:
-            matter_name: Name/ID of the matter (used for storage paths)
+            matter_name: Matter ID (UUID) for the matter in Iqidis database
             api_key: Gemini API key
         """
         self.matter_name = matter_name
+        self.matter_id = matter_name  # matter_name is actually the matter UUID
         self.api_key = api_key
 
-        # Set up paths
-        self.matter_dir = MATTERS_DIR / matter_name
-        self.matter_dir.mkdir(parents=True, exist_ok=True)
-
-        # Initialize components
-        self.db = Database(str(self.matter_dir / "graph.db"))
-        self.vector_store = VectorStore(str(self.matter_dir))
+        # Initialize PostgreSQL database
+        if not POSTGRES_URL:
+            raise ValueError("POSTGRES_URL not configured. Please set development_POSTGRES_URL or POSTGRES_URL in .env")
+        
+        self.db = PostgreSQLDatabase(POSTGRES_URL, self.matter_id)
+        self.vector_store = VectorStore(self.db, self.matter_id)
         self.extraction_pipeline = ExtractionPipeline(self.db, self.vector_store, api_key)
         self.query_engine = NLQueryEngine(self.db, self.vector_store, api_key)
 

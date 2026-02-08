@@ -29,7 +29,7 @@ def _print(*args, **kwargs):
     """Print with flush for real-time output."""
     print(*args, **kwargs, flush=True)
 
-from ..storage.database import Database
+from ..storage.postgres_database import PostgreSQLDatabase as Database
 from ..storage.models import Entity, Edge, Mention, Document, Alias
 from ..parsing.document_parser import DocumentParser, ParsedDocument
 from ..parsing.chunker import Chunker, Chunk

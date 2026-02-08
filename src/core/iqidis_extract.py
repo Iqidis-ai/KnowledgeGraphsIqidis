@@ -5,8 +5,8 @@ Flow:
 1. Fetch documents from Iqidis PostgreSQL (matter_documents -> document -> artifact)
 2. Download content from S3 (parallel)
 3. Parse and extract entities/relations (parallel)
-4. Store Knowledge Graph locally in SQLite (matters/<matter_id>/graph.db)
-   - Same local storage as CLI extract - no write to Iqidis DB
+4. Store Knowledge Graph in PostgreSQL (kg_entities, kg_edges, kg_mentions, etc.)
+   - All data stored in PostgreSQL with matter_id isolation
 """
 from typing import Dict, Any, List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -66,10 +66,10 @@ def extract_from_iqidis_matter(
 ) -> Dict[str, Any]:
     """
     Extract entities and relationships from Iqidis matter documents.
-    Stores the Knowledge Graph locally (SQLite) at matters/<matter_id>/graph.db.
+    Stores the Knowledge Graph in PostgreSQL (kg_entities, kg_edges, etc.).
     
     Args:
-        matter_id: The Iqidis matter ID
+        matter_id: The Iqidis matter ID (UUID)
         api_key: Gemini API key
         verbose: Print progress messages
         max_workers: Number of parallel workers for downloading and parsing
@@ -106,7 +106,7 @@ def extract_from_iqidis_matter(
 
     _log(f"Found {len(docs)} documents. Starting parallel download and parsing with {max_workers} workers...")
 
-    # KnowledgeGraph uses local SQLite (matters/<matter_id>/graph.db)
+    # KnowledgeGraph uses PostgreSQL (kg_entities, kg_edges, etc.)
     kg = KnowledgeGraph(matter_id, api_key=api_key)
     parser = DocumentParser()
 
@@ -138,12 +138,12 @@ def extract_from_iqidis_matter(
                 _log(f"  ✗ {original_name}: {e}")
 
     # Phase 2: Extract entities and relations sequentially
-    # (Sequential because SQLite doesn't handle concurrent writes well)
+    # (Sequential because of concurrent write considerations)
     _log(f"\nExtracting Knowledge Graph from {len(parsed_documents)} documents...")
     
     for parsed, original_name in parsed_documents:
         try:
-            # Stores to local SQLite (matters/<matter_id>/graph.db)
+            # Stores to PostgreSQL (kg_entities, kg_edges, kg_mentions, etc.)
             kg.extraction_pipeline.process_parsed_document(parsed, skip_if_exists=True)
             result["documents_processed"] += 1
             _log(f"  ✓ Extracted from {original_name}")
