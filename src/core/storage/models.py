@@ -144,14 +144,17 @@ class Document:
     file_hash: str
     added_at: datetime = field(default_factory=datetime.now)
     processed_at: Optional[datetime] = None
+    doc_id: Optional[str] = None  # Links back to Iqidis document table
 
     @classmethod
-    def create(cls, filename: str, filepath: str, file_hash: str) -> "Document":
+    def create(cls, filename: str, filepath: str, file_hash: str,
+               doc_id: Optional[str] = None) -> "Document":
         return cls(
             id=generate_id(),
             filename=filename,
             filepath=filepath,
-            file_hash=file_hash
+            file_hash=file_hash,
+            doc_id=doc_id
         )
 
 
@@ -160,7 +163,8 @@ class Event:
     """Represents an operation on the graph (for event sourcing)."""
     id: str
     timestamp: datetime
-    operation: str  # create_entity, merge_entities, split_entity, create_edge, delete_edge, etc.
+    # create_entity, merge_entities, split_entity, create_edge, delete_edge, etc.
+    operation: str
     payload: Dict[str, Any]
     user_initiated: bool = False
 

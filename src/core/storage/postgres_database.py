@@ -18,7 +18,7 @@ class PostgreSQLDatabase:
     def __init__(self, connection_string: str, matter_id: str):
         """
         Initialize PostgreSQL connection for a specific matter.
-        
+
         Args:
             connection_string: PostgreSQL connection string
             matter_id: UUID of the matter this KG belongs to
@@ -28,10 +28,91 @@ class PostgreSQLDatabase:
         self.conn = psycopg2.connect(connection_string)
         self.conn.autocommit = False
         psycopg2.extras.register_uuid()
+        self._ensure_doc_id_column()
+        self._ensure_document_chunks_table()
 
     def _get_cursor(self):
-        """Get a cursor with dict-like row factory."""
+        """Get a cursor with dict-like row factory.
+
+        Automatically recovers from aborted transaction state (e.g. after a
+        constraint violation).  Only rolls back when the connection is in the
+        INERROR state — normal in-progress transactions are left untouched.
+        """
+        if self.conn.get_transaction_status() == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
         return self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    def _ensure_doc_id_column(self):
+        """Add doc_id column to kg_documents if it doesn't exist (one-time migration).
+
+        Uses information_schema to check first — avoids ACCESS EXCLUSIVE lock
+        from ALTER TABLE when the column already exists.  This prevents deadlocks
+        when multiple connections initialise concurrently.
+        """
+        try:
+            cursor = self._get_cursor()
+            cursor.execute("""
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'kg_documents' AND column_name = 'doc_id'
+            """)
+            if cursor.fetchone() is not None:
+                # Column already exists — nothing to do
+                self.conn.commit()
+                return
+            cursor.execute(
+                "ALTER TABLE kg_documents ADD COLUMN doc_id UUID")
+            self.conn.commit()
+        except Exception:
+            # Table may not exist yet or column already exists
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+
+    def _ensure_document_chunks_table(self):
+        """Create kg_document_chunks table if it doesn't exist.
+
+        Stores pre-computed (Voyage AI) or backend-generated chunk embeddings
+        for document-level semantic search.
+        """
+        try:
+            cursor = self._get_cursor()
+            cursor.execute("""
+                SELECT 1 FROM information_schema.tables
+                WHERE table_name = 'kg_document_chunks'
+            """)
+            if cursor.fetchone() is not None:
+                self.conn.commit()
+                return
+            cursor.execute("""
+                CREATE TABLE kg_document_chunks (
+                    id UUID PRIMARY KEY,
+                    matter_id UUID NOT NULL,
+                    kg_doc_id TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    embedding BYTEA,
+                    dimension INTEGER,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_doc_chunks_matter
+                ON kg_document_chunks (matter_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc
+                ON kg_document_chunks (kg_doc_id)
+            """)
+            self.conn.commit()
+        except Exception:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
 
     # ==================== Entity Operations ====================
 
@@ -47,13 +128,15 @@ class PostgreSQLDatabase:
             entity.created_at, entity.updated_at
         ))
         self.conn.commit()
-        self._log_event("create_entity", {"entity_id": entity.id, "type": entity.type, "name": entity.canonical_name})
+        self._log_event("create_entity", {
+                        "entity_id": entity.id, "type": entity.type, "name": entity.canonical_name})
         return entity.id
 
     def get_entity(self, entity_id: str) -> Optional[Entity]:
         """Get an entity by ID."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT * FROM kg_entities WHERE id = %s AND matter_id = %s", (entity_id, self.matter_id))
+        cursor.execute(
+            "SELECT * FROM kg_entities WHERE id = %s AND matter_id = %s", (entity_id, self.matter_id))
         row = cursor.fetchone()
         if row:
             return self._row_to_entity(row)
@@ -123,18 +206,20 @@ class PostgreSQLDatabase:
         cursor = self._get_cursor()
 
         # Move all mentions from merge to keep
-        cursor.execute("UPDATE kg_mentions SET entity_id = %s WHERE entity_id = %s", (keep_id, merge_id))
+        cursor.execute(
+            "UPDATE kg_mentions SET entity_id = %s WHERE entity_id = %s", (keep_id, merge_id))
 
         # Move all aliases from merge to keep
-        cursor.execute("UPDATE kg_aliases SET entity_id = %s WHERE entity_id = %s", (keep_id, merge_id))
+        cursor.execute(
+            "UPDATE kg_aliases SET entity_id = %s WHERE entity_id = %s", (keep_id, merge_id))
 
         # Update edges - source
-        cursor.execute("UPDATE kg_edges SET source_entity_id = %s WHERE source_entity_id = %s AND matter_id = %s", 
-                      (keep_id, merge_id, self.matter_id))
+        cursor.execute("UPDATE kg_edges SET source_entity_id = %s WHERE source_entity_id = %s AND matter_id = %s",
+                       (keep_id, merge_id, self.matter_id))
 
         # Update edges - target
-        cursor.execute("UPDATE kg_edges SET target_entity_id = %s WHERE target_entity_id = %s AND matter_id = %s", 
-                      (keep_id, merge_id, self.matter_id))
+        cursor.execute("UPDATE kg_edges SET target_entity_id = %s WHERE target_entity_id = %s AND matter_id = %s",
+                       (keep_id, merge_id, self.matter_id))
 
         # Tombstone the merged entity
         cursor.execute("""
@@ -143,7 +228,8 @@ class PostgreSQLDatabase:
         """, (datetime.now(), merge_id, self.matter_id))
 
         self.conn.commit()
-        self._log_event("merge_entities", {"keep_id": keep_id, "merge_id": merge_id}, user_initiated=True)
+        self._log_event("merge_entities", {
+                        "keep_id": keep_id, "merge_id": merge_id}, user_initiated=True)
 
     def _row_to_entity(self, row: Dict) -> Entity:
         """Convert a database row to an Entity object."""
@@ -151,7 +237,8 @@ class PostgreSQLDatabase:
             id=str(row["id"]),
             type=row["type"],
             canonical_name=row["canonical_name"],
-            properties=row["properties"] if isinstance(row["properties"], dict) else {},
+            properties=row["properties"] if isinstance(
+                row["properties"], dict) else {},
             confidence=row["confidence"],
             status=row["status"],
             created_at=row["created_at"],
@@ -178,7 +265,23 @@ class PostgreSQLDatabase:
     def get_aliases(self, entity_id: str) -> List[Alias]:
         """Get all aliases for an entity."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT * FROM kg_aliases WHERE entity_id = %s", (entity_id,))
+        cursor.execute(
+            "SELECT * FROM kg_aliases WHERE entity_id = %s", (entity_id,))
+        return [Alias(
+            id=str(row["id"]),
+            entity_id=str(row["entity_id"]),
+            alias_text=row["alias_text"],
+            source=row["source"]
+        ) for row in cursor.fetchall()]
+
+    def get_all_aliases_for_matter(self) -> List[Alias]:
+        """Get all aliases for entities in this matter (single query)."""
+        cursor = self._get_cursor()
+        cursor.execute("""
+            SELECT a.* FROM kg_aliases a
+            JOIN kg_entities e ON a.entity_id = e.id
+            WHERE e.matter_id = %s AND e.status = 'active'
+        """, (self.matter_id,))
         return [Alias(
             id=str(row["id"]),
             entity_id=str(row["entity_id"]),
@@ -197,7 +300,8 @@ class PostgreSQLDatabase:
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             edge.id, self.matter_id, edge.source_entity_id, edge.target_entity_id, edge.relation_type,
-            json.dumps(edge.properties), edge.confidence, edge.provenance_doc_id,
+            json.dumps(
+                edge.properties), edge.confidence, edge.provenance_doc_id,
             edge.provenance_span, edge.created_at
         ))
         self.conn.commit()
@@ -212,21 +316,22 @@ class PostgreSQLDatabase:
     def get_edges_from(self, entity_id: str) -> List[Edge]:
         """Get all outgoing edges from an entity."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT * FROM kg_edges WHERE source_entity_id = %s AND matter_id = %s", 
-                      (entity_id, self.matter_id))
+        cursor.execute("SELECT * FROM kg_edges WHERE source_entity_id = %s AND matter_id = %s",
+                       (entity_id, self.matter_id))
         return [self._row_to_edge(row) for row in cursor.fetchall()]
 
     def get_edges_to(self, entity_id: str) -> List[Edge]:
         """Get all incoming edges to an entity."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT * FROM kg_edges WHERE target_entity_id = %s AND matter_id = %s", 
-                      (entity_id, self.matter_id))
+        cursor.execute("SELECT * FROM kg_edges WHERE target_entity_id = %s AND matter_id = %s",
+                       (entity_id, self.matter_id))
         return [self._row_to_edge(row) for row in cursor.fetchall()]
 
     def get_all_edges(self, limit: int = 1000) -> List[Edge]:
         """Get all edges."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT * FROM kg_edges WHERE matter_id = %s LIMIT %s", (self.matter_id, limit))
+        cursor.execute(
+            "SELECT * FROM kg_edges WHERE matter_id = %s LIMIT %s", (self.matter_id, limit))
         return [self._row_to_edge(row) for row in cursor.fetchall()]
 
     def get_entity_neighbors(self, entity_id: str, max_hops: int = 1) -> Dict[str, Any]:
@@ -259,7 +364,8 @@ class PostgreSQLDatabase:
     def delete_edge(self, edge_id: str):
         """Delete an edge."""
         cursor = self._get_cursor()
-        cursor.execute("DELETE FROM kg_edges WHERE id = %s AND matter_id = %s", (edge_id, self.matter_id))
+        cursor.execute(
+            "DELETE FROM kg_edges WHERE id = %s AND matter_id = %s", (edge_id, self.matter_id))
         self.conn.commit()
         self._log_event("delete_edge", {"edge_id": edge_id})
 
@@ -270,9 +376,11 @@ class PostgreSQLDatabase:
             source_entity_id=str(row["source_entity_id"]),
             target_entity_id=str(row["target_entity_id"]),
             relation_type=row["relation_type"],
-            properties=row["properties"] if isinstance(row["properties"], dict) else {},
+            properties=row["properties"] if isinstance(
+                row["properties"], dict) else {},
             confidence=row["confidence"],
-            provenance_doc_id=str(row["provenance_doc_id"]) if row["provenance_doc_id"] else None,
+            provenance_doc_id=str(
+                row["provenance_doc_id"]) if row["provenance_doc_id"] else None,
             provenance_span=row["provenance_span"],
             created_at=row["created_at"]
         )
@@ -295,13 +403,15 @@ class PostgreSQLDatabase:
     def get_mentions_for_entity(self, entity_id: str) -> List[Mention]:
         """Get all mentions of an entity."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT * FROM kg_mentions WHERE entity_id = %s", (entity_id,))
+        cursor.execute(
+            "SELECT * FROM kg_mentions WHERE entity_id = %s", (entity_id,))
         return [self._row_to_mention(row) for row in cursor.fetchall()]
 
     def get_mentions_in_doc(self, doc_id: str) -> List[Mention]:
         """Get all mentions in a document."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT * FROM kg_mentions WHERE doc_id = %s", (doc_id,))
+        cursor.execute(
+            "SELECT * FROM kg_mentions WHERE doc_id = %s", (doc_id,))
         return [self._row_to_mention(row) for row in cursor.fetchall()]
 
     def _row_to_mention(self, row: Dict) -> Mention:
@@ -319,23 +429,31 @@ class PostgreSQLDatabase:
     # ==================== Document Operations ====================
 
     def add_document(self, document: Document) -> str:
-        """Add a new document."""
+        """Add a new document. Returns existing document ID if hash already exists."""
         cursor = self._get_cursor()
         cursor.execute("""
-            INSERT INTO kg_documents (id, matter_id, filename, filepath, file_hash, added_at, processed_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO kg_documents (id, matter_id, filename, filepath, file_hash, added_at, processed_at, doc_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (matter_id, file_hash) DO UPDATE SET
+                filename = EXCLUDED.filename,
+                doc_id = COALESCE(EXCLUDED.doc_id, kg_documents.doc_id)
+            RETURNING id
         """, (
             document.id, self.matter_id, document.filename, document.filepath, document.file_hash,
             document.added_at,
-            document.processed_at if document.processed_at else None
+            document.processed_at if document.processed_at else None,
+            document.doc_id
         ))
+        row = cursor.fetchone()
         self.conn.commit()
-        return document.id
+        # Return the actual ID (may differ from document.id if conflict occurred)
+        return str(row["id"]) if row else document.id
 
     def get_document(self, doc_id: str) -> Optional[Document]:
         """Get a document by ID."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT * FROM kg_documents WHERE id = %s AND matter_id = %s", (doc_id, self.matter_id))
+        cursor.execute(
+            "SELECT * FROM kg_documents WHERE id = %s AND matter_id = %s", (doc_id, self.matter_id))
         row = cursor.fetchone()
         if row:
             return self._row_to_document(row)
@@ -344,8 +462,8 @@ class PostgreSQLDatabase:
     def get_document_by_hash(self, file_hash: str) -> Optional[Document]:
         """Get a document by file hash."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT * FROM kg_documents WHERE file_hash = %s AND matter_id = %s", 
-                      (file_hash, self.matter_id))
+        cursor.execute("SELECT * FROM kg_documents WHERE file_hash = %s AND matter_id = %s",
+                       (file_hash, self.matter_id))
         row = cursor.fetchone()
         if row:
             return self._row_to_document(row)
@@ -354,14 +472,15 @@ class PostgreSQLDatabase:
     def get_all_documents(self) -> List[Document]:
         """Get all documents."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT * FROM kg_documents WHERE matter_id = %s", (self.matter_id,))
+        cursor.execute(
+            "SELECT * FROM kg_documents WHERE matter_id = %s", (self.matter_id,))
         return [self._row_to_document(row) for row in cursor.fetchall()]
 
     def mark_document_processed(self, doc_id: str):
         """Mark a document as processed."""
         cursor = self._get_cursor()
         cursor.execute("UPDATE kg_documents SET processed_at = %s WHERE id = %s AND matter_id = %s",
-                      (datetime.now(), doc_id, self.matter_id))
+                       (datetime.now(), doc_id, self.matter_id))
         self.conn.commit()
 
     def delete_document(self, doc_id: str):
@@ -379,12 +498,13 @@ class PostgreSQLDatabase:
         cursor.execute("DELETE FROM kg_mentions WHERE doc_id = %s", (doc_id,))
 
         # Delete edges with provenance from this document
-        cursor.execute("DELETE FROM kg_edges WHERE provenance_doc_id = %s AND matter_id = %s", 
-                      (doc_id, self.matter_id))
+        cursor.execute("DELETE FROM kg_edges WHERE provenance_doc_id = %s AND matter_id = %s",
+                       (doc_id, self.matter_id))
 
         # Check if any entities became orphaned (no remaining mentions)
         for entity_id in entity_ids:
-            cursor.execute("SELECT COUNT(*) as cnt FROM kg_mentions WHERE entity_id = %s", (entity_id,))
+            cursor.execute(
+                "SELECT COUNT(*) as cnt FROM kg_mentions WHERE entity_id = %s", (entity_id,))
             if cursor.fetchone()["cnt"] == 0:
                 # Orphaned - tombstone it
                 cursor.execute("""
@@ -393,7 +513,8 @@ class PostgreSQLDatabase:
                 """, (datetime.now(), entity_id, self.matter_id))
 
         # Delete the document
-        cursor.execute("DELETE FROM kg_documents WHERE id = %s AND matter_id = %s", (doc_id, self.matter_id))
+        cursor.execute(
+            "DELETE FROM kg_documents WHERE id = %s AND matter_id = %s", (doc_id, self.matter_id))
         self.conn.commit()
         self._log_event("delete_document", {"doc_id": doc_id})
 
@@ -405,7 +526,8 @@ class PostgreSQLDatabase:
             filepath=row["filepath"],
             file_hash=row["file_hash"],
             added_at=row["added_at"],
-            processed_at=row["processed_at"] if row["processed_at"] else None
+            processed_at=row["processed_at"] if row["processed_at"] else None,
+            doc_id=str(row["doc_id"]) if row.get("doc_id") else None
         )
 
     # ==================== Resolution Queue Operations ====================
@@ -448,8 +570,8 @@ class PostgreSQLDatabase:
         cursor = self._get_cursor()
 
         # Get queue item details
-        cursor.execute("SELECT * FROM kg_resolution_queue WHERE id = %s AND matter_id = %s", 
-                      (queue_id, self.matter_id))
+        cursor.execute("SELECT * FROM kg_resolution_queue WHERE id = %s AND matter_id = %s",
+                       (queue_id, self.matter_id))
         row = cursor.fetchone()
         if not row:
             return
@@ -466,7 +588,8 @@ class PostgreSQLDatabase:
         self.add_mention(mention)
 
         # Mark as resolved
-        cursor.execute("UPDATE kg_resolution_queue SET status = 'resolved' WHERE id = %s", (queue_id,))
+        cursor.execute(
+            "UPDATE kg_resolution_queue SET status = 'resolved' WHERE id = %s", (queue_id,))
         self.conn.commit()
 
     # ==================== Event Logging ====================
@@ -515,7 +638,8 @@ class PostgreSQLDatabase:
     def get_embedding(self, entity_id: str) -> Optional[bytes]:
         """Get embedding vector for an entity."""
         cursor = self._get_cursor()
-        cursor.execute("SELECT vector FROM kg_embeddings WHERE entity_id = %s", (entity_id,))
+        cursor.execute(
+            "SELECT vector FROM kg_embeddings WHERE entity_id = %s", (entity_id,))
         row = cursor.fetchone()
         return bytes(row["vector"]) if row else None
 
@@ -536,14 +660,16 @@ class PostgreSQLDatabase:
         """Get database statistics."""
         cursor = self._get_cursor()
 
-        cursor.execute("SELECT COUNT(*) as cnt FROM kg_entities WHERE status = 'active' AND matter_id = %s", 
-                      (self.matter_id,))
+        cursor.execute("SELECT COUNT(*) as cnt FROM kg_entities WHERE status = 'active' AND matter_id = %s",
+                       (self.matter_id,))
         entity_count = cursor.fetchone()["cnt"]
 
-        cursor.execute("SELECT COUNT(*) as cnt FROM kg_edges WHERE matter_id = %s", (self.matter_id,))
+        cursor.execute(
+            "SELECT COUNT(*) as cnt FROM kg_edges WHERE matter_id = %s", (self.matter_id,))
         edge_count = cursor.fetchone()["cnt"]
 
-        cursor.execute("SELECT COUNT(*) as cnt FROM kg_documents WHERE matter_id = %s", (self.matter_id,))
+        cursor.execute(
+            "SELECT COUNT(*) as cnt FROM kg_documents WHERE matter_id = %s", (self.matter_id,))
         doc_count = cursor.fetchone()["cnt"]
 
         cursor.execute("""
@@ -574,6 +700,181 @@ class PostgreSQLDatabase:
             "pending_resolutions": pending_count,
             "entities_by_type": type_counts
         }
+
+    # ==================== Batch Operations (Performance) ====================
+
+    def add_entities_batch(self, entities: List[Entity]) -> List[str]:
+        """Add multiple entities in a single transaction using bulk insert."""
+        if not entities:
+            return []
+        cursor = self._get_cursor()
+        values = [
+            (e.id, self.matter_id, e.type, e.canonical_name,
+             json.dumps(e.properties), e.confidence, e.status,
+             e.created_at, e.updated_at)
+            for e in entities
+        ]
+        psycopg2.extras.execute_values(
+            cursor,
+            """INSERT INTO kg_entities (id, matter_id, type, canonical_name, properties, confidence, status, created_at, updated_at)
+               VALUES %s ON CONFLICT (id) DO NOTHING""",
+            values,
+            page_size=500
+        )
+        self.conn.commit()
+        # Batch log events
+        self._log_events_batch([
+            ("create_entity", {"entity_id": e.id,
+             "type": e.type, "name": e.canonical_name})
+            for e in entities
+        ])
+        return [e.id for e in entities]
+
+    def add_edges_batch(self, edges: List[Edge]) -> List[str]:
+        """Add multiple edges in a single transaction using bulk insert."""
+        if not edges:
+            return []
+        cursor = self._get_cursor()
+        values = [
+            (e.id, self.matter_id, e.source_entity_id, e.target_entity_id, e.relation_type,
+             json.dumps(e.properties), e.confidence, e.provenance_doc_id,
+             e.provenance_span, e.created_at)
+            for e in edges
+        ]
+        psycopg2.extras.execute_values(
+            cursor,
+            """INSERT INTO kg_edges (id, matter_id, source_entity_id, target_entity_id, relation_type,
+                                     properties, confidence, provenance_doc_id, provenance_span, created_at)
+               VALUES %s ON CONFLICT (id) DO NOTHING""",
+            values,
+            page_size=500
+        )
+        self.conn.commit()
+        return [e.id for e in edges]
+
+    def add_mentions_batch(self, mentions: List[Mention]) -> List[str]:
+        """Add multiple mentions in a single transaction using bulk insert."""
+        if not mentions:
+            return []
+        cursor = self._get_cursor()
+        values = [
+            (m.id, m.entity_id, m.doc_id, m.span_start, m.span_end,
+             m.surface_text, m.context_snippet)
+            for m in mentions
+        ]
+        psycopg2.extras.execute_values(
+            cursor,
+            """INSERT INTO kg_mentions (id, entity_id, doc_id, span_start, span_end, surface_text, context_snippet)
+               VALUES %s ON CONFLICT (id) DO NOTHING""",
+            values,
+            page_size=500
+        )
+        self.conn.commit()
+        return [m.id for m in mentions]
+
+    def add_aliases_batch(self, aliases: List[Alias]):
+        """Add multiple aliases in a single transaction using bulk insert."""
+        if not aliases:
+            return
+        cursor = self._get_cursor()
+        values = [
+            (a.id, a.entity_id, a.alias_text, a.source)
+            for a in aliases
+        ]
+        try:
+            psycopg2.extras.execute_values(
+                cursor,
+                """INSERT INTO kg_aliases (id, entity_id, alias_text, source)
+                   VALUES %s ON CONFLICT (entity_id, alias_text) DO NOTHING""",
+                values,
+                page_size=500
+            )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+
+    def store_embeddings_batch(self, embeddings: List[Tuple[str, bytes]]):
+        """Store multiple embedding vectors in a single transaction."""
+        if not embeddings:
+            return
+        cursor = self._get_cursor()
+        now = datetime.now()
+        values = [
+            (entity_id, vector, len(vector) // 4, now)
+            for entity_id, vector in embeddings
+        ]
+        psycopg2.extras.execute_values(
+            cursor,
+            """INSERT INTO kg_embeddings (entity_id, vector, dimension, created_at)
+               VALUES %s
+               ON CONFLICT (entity_id) DO UPDATE SET vector = EXCLUDED.vector, created_at = EXCLUDED.created_at""",
+            values,
+            page_size=500
+        )
+        self.conn.commit()
+
+    def _log_events_batch(self, events_data: List[Tuple[str, Dict]]):
+        """Log multiple events in a single transaction."""
+        if not events_data:
+            return
+        from .models import generate_id
+        cursor = self._get_cursor()
+        now = datetime.now()
+        values = [
+            (generate_id(), self.matter_id, now,
+             operation, json.dumps(payload), False)
+            for operation, payload in events_data
+        ]
+        try:
+            psycopg2.extras.execute_values(
+                cursor,
+                """INSERT INTO kg_events (id, matter_id, timestamp, operation, payload, user_initiated)
+                   VALUES %s""",
+                values,
+                page_size=500
+            )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+
+    def store_document_chunks_batch(self, kg_doc_id: str, chunks: list):
+        """Store pre-computed document chunks with embeddings.
+
+        Args:
+            kg_doc_id: The KG document ID (kg_documents.id)
+            chunks: List of dicts with keys: chunk_index, content, embedding (list[float] | None)
+        """
+        if not chunks:
+            return
+        import numpy as np
+        from .models import generate_id
+        cursor = self._get_cursor()
+        now = datetime.now()
+        values = []
+        for chunk in chunks:
+            embedding = chunk.get("embedding")
+            if embedding is not None:
+                vec = np.array(embedding, dtype=np.float32)
+                vec_bytes = vec.tobytes()
+                dim = len(embedding)
+            else:
+                vec_bytes = None
+                dim = None
+            values.append((
+                generate_id(), self.matter_id, kg_doc_id,
+                chunk.get("chunk_index", 0), chunk.get("content", ""),
+                vec_bytes, dim, now
+            ))
+        psycopg2.extras.execute_values(
+            cursor,
+            """INSERT INTO kg_document_chunks
+               (id, matter_id, kg_doc_id, chunk_index, content, embedding, dimension, created_at)
+               VALUES %s
+               ON CONFLICT DO NOTHING""",
+            values,
+            page_size=500
+        )
+        self.conn.commit()
 
     def close(self):
         """Close database connection."""

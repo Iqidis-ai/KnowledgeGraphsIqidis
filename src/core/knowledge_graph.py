@@ -15,30 +15,33 @@ from .storage.models import Entity, Edge, Mention, Alias
 from .embeddings.vector_store import VectorStore
 from .extraction.extraction_pipeline import ExtractionPipeline
 from .query.nl_query import NLQueryEngine, QueryResult
-from .config import GEMINI_API_KEY, POSTGRES_URL
+from .config import GEMINI_API_KEY, POSTGRES_URL, get_postgres_url
 
 
 class KnowledgeGraph:
     """Main interface for the Knowledge Graph system."""
 
-    def __init__(self, matter_name: str, api_key: str = GEMINI_API_KEY):
+    def __init__(self, matter_name: str, api_key: str = GEMINI_API_KEY,
+                 db_url: Optional[str] = None):
         """Initialize a knowledge graph for a specific matter.
 
         Args:
             matter_name: Matter ID (UUID) for the matter in Iqidis database
             api_key: Gemini API key
+            db_url: Optional explicit PostgreSQL URL. When provided it takes
+                    precedence over the environment-based default.
         """
         self.matter_name = matter_name
         self.matter_id = matter_name  # matter_name is actually the matter UUID
         self.api_key = api_key
 
-        # Initialize PostgreSQL database
-        if not POSTGRES_URL:
-            raise ValueError("POSTGRES_URL not configured. Please set development_POSTGRES_URL or POSTGRES_URL in .env")
-        
-        self.db = PostgreSQLDatabase(POSTGRES_URL, self.matter_id)
+        # Resolve PostgreSQL URL: explicit arg → env-based default
+        resolved_url = db_url or get_postgres_url()
+
+        self.db = PostgreSQLDatabase(resolved_url, self.matter_id)
         self.vector_store = VectorStore(self.db, self.matter_id)
-        self.extraction_pipeline = ExtractionPipeline(self.db, self.vector_store, api_key)
+        self.extraction_pipeline = ExtractionPipeline(
+            self.db, self.vector_store, api_key)
         self.query_engine = NLQueryEngine(self.db, self.vector_store, api_key)
 
     # ==================== Document Processing ====================
@@ -234,7 +237,8 @@ class KnowledgeGraph:
 
         # Filter edges to only include visible entities
         entity_ids = {e.id for e in entities}
-        edges = [e for e in edges if e.source_entity_id in entity_ids and e.target_entity_id in entity_ids]
+        edges = [
+            e for e in edges if e.source_entity_id in entity_ids and e.target_entity_id in entity_ids]
 
         # Format for visualization
         nodes = [

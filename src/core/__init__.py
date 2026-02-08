@@ -14,11 +14,12 @@ Usage:
 """
 
 from .knowledge_graph import KnowledgeGraph
-from .config import GEMINI_API_KEY, GEMINI_MODEL, POSTGRES_URL
+from .config import GEMINI_API_KEY, GEMINI_MODEL, POSTGRES_URL, get_postgres_url
 
 __all__ = [
     'KnowledgeGraph',
     'GEMINI_API_KEY',
     'GEMINI_MODEL',
     'POSTGRES_URL',
+    'get_postgres_url',
 ]

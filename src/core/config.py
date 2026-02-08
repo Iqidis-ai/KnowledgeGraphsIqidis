@@ -3,6 +3,7 @@ Configuration settings for the Knowledge Graph system.
 """
 import os
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -24,21 +25,59 @@ CHUNK_OVERLAP = 1000  # tokens (5% overlap for large chunks)
 # Iqidis: max document size for extraction (50 MB)
 MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024
 
-# Iqidis PostgreSQL (read-only, for fetching matters/documents)
+# --- Environment-based PostgreSQL URL ---
+# APP_ENV controls which *_POSTGRES_URL is used.
+# Supported values: "development" (default), "staging", "production"
+APP_ENV = os.getenv("APP_ENV", "development").lower()
+
+_POSTGRES_URLS = {
+    "development": os.getenv("development_POSTGRES_URL"),
+    "staging": os.getenv("staging_POSTGRES_URL"),
+    "production": os.getenv("production_POSTGRES_URL"),
+}
+
+# Fallback chain: env-specific → generic POSTGRES_URL → DATABASE_URL
 POSTGRES_URL = (
-    os.getenv("development_POSTGRES_URL")
+    _POSTGRES_URLS.get(APP_ENV)
     or os.getenv("POSTGRES_URL")
-    or os.getenv("development_POSTGRES_URL")
     or os.getenv("DATABASE_URL")
 )
 
+
+def get_postgres_url(env: Optional[str] = None) -> str:
+    """Return the PostgreSQL URL for the given environment.
+
+    Priority:
+        1. Explicit *env* argument  → look up {env}_POSTGRES_URL
+        2. APP_ENV env var          → look up {APP_ENV}_POSTGRES_URL
+        3. Generic POSTGRES_URL / DATABASE_URL fallback
+
+    Raises ValueError if no URL can be resolved.
+    """
+    if env:
+        url = os.getenv(f"{env}_POSTGRES_URL") or _POSTGRES_URLS.get(env)
+        if url:
+            return url
+    # Fall back to module-level default
+    if POSTGRES_URL:
+        return POSTGRES_URL
+    raise ValueError(
+        "No POSTGRES_URL configured. Set APP_ENV + {env}_POSTGRES_URL, "
+        "or POSTGRES_URL / DATABASE_URL in .env"
+    )
+
+
 # Embedding Configuration
-EMBEDDING_DIMENSION = 768  # Using 768 for gemini-embedding-001 with output_dimensionality
+# Using 768 for gemini-embedding-001 with output_dimensionality
+EMBEDDING_DIMENSION = 768
+# Pre-computed chunk embeddings from Voyage AI (voyage-3)
+VOYAGE_EMBEDDING_DIMENSION = 1024
 
 # Paths (kept for backwards compatibility, but not used for KG storage anymore)
 # Navigate from src/core/config.py up to project root
 BASE_DIR = Path(__file__).parent.parent.parent
-MATTERS_DIR = BASE_DIR / "matters"  # DEPRECATED: KG now uses PostgreSQL, not local files
+# DEPRECATED: KG now uses PostgreSQL, not local files
+MATTERS_DIR = BASE_DIR / "matters"
 
 # Entity Types
 ENTITY_TYPES = [

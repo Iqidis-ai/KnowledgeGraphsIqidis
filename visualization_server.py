@@ -10,6 +10,10 @@ Usage:
     python visualization_server.py
     python visualization_server.py --matter my_case --port 8080
 """
+from src.core.config import GEMINI_API_KEY
+from src.api.server import api, init_matter
+from flask_cors import CORS
+from flask import Flask, send_from_directory
 import argparse
 import sys
 from pathlib import Path
@@ -17,12 +21,6 @@ from typing import Optional
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
-
-from flask import Flask, send_from_directory
-from flask_cors import CORS
-
-from src.api.server import api, init_matter
-from src.core.config import GEMINI_API_KEY
 
 
 def create_visualization_app(matter_name: Optional[str] = None, api_key: str = GEMINI_API_KEY) -> Flask:
@@ -70,8 +68,8 @@ def main():
     parser.add_argument(
         '--port', '-p',
         type=int,
-        default=5000,
-        help='Port to run on (default: 5000)'
+        default=8000,
+        help='Port to run on (default: 8000)'
     )
     parser.add_argument(
         '--host',

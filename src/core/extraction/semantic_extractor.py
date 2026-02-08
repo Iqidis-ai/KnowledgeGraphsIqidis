@@ -17,11 +17,15 @@ from json_repair import repair_json
 
 from ..config import GEMINI_API_KEY, GEMINI_MODEL
 
-# Rate limiting settings for free tier (15 requests/minute)
-REQUESTS_PER_MINUTE = 15
-MIN_DELAY_BETWEEN_REQUESTS = 60.0 / REQUESTS_PER_MINUTE  # ~4 seconds
+# Rate limiting settings - auto-detect tier from env
+# Paid tier: 60 req/min, Free tier: 15 req/min
+import os
+_IS_PAID_TIER = os.getenv(
+    "GEMINI_PAID_TIER", "true").lower() in ("true", "1", "yes")
+REQUESTS_PER_MINUTE = 60 if _IS_PAID_TIER else 15
+MIN_DELAY_BETWEEN_REQUESTS = 60.0 / REQUESTS_PER_MINUTE  # ~1s paid, ~4s free
 MAX_RETRIES = 3
-RETRY_BASE_DELAY = 45  # seconds
+RETRY_BASE_DELAY = 10 if _IS_PAID_TIER else 45  # seconds
 
 
 @dataclass
@@ -216,10 +220,11 @@ ENTITIES IN THIS CHUNK:
 Output only valid JSON array of facts:
 """
 
-    def __init__(self, api_key: str = GEMINI_API_KEY):
+    def __init__(self, api_key: str = GEMINI_API_KEY, external_rate_limit: bool = False):
         self.client = genai.Client(api_key=api_key)
         self.model_name = GEMINI_MODEL
         self.last_request_time = 0
+        self._external_rate_limit = external_rate_limit
 
         # Generation config for structured output
         from google.genai import types
@@ -241,7 +246,8 @@ Output only valid JSON array of facts:
         """Call the API with retry logic for rate limits."""
         for attempt in range(MAX_RETRIES):
             try:
-                self._rate_limit()
+                if not self._external_rate_limit:
+                    self._rate_limit()
                 response = self.client.models.generate_content(
                     model=self.model_name,
                     contents=prompt,
@@ -268,7 +274,8 @@ Output only valid JSON array of facts:
 
     def _extract_unified(self, text: str, existing_entities: List[str]) -> SemanticExtraction:
         """Extract everything in a single API call for efficiency."""
-        existing_str = ", ".join(existing_entities[:50]) if existing_entities else "None"
+        existing_str = ", ".join(
+            existing_entities[:50]) if existing_entities else "None"
 
         # Reduced text length to prevent response truncation
         max_text_len = 25000  # ~10K tokens - smaller to fit response in output limit
@@ -283,7 +290,8 @@ Output only valid JSON array of facts:
 
             # Debug: Check response format
             if response_text:
-                first_chars = repr(response_text[:50]) if len(response_text) > 50 else repr(response_text)
+                first_chars = repr(response_text[:50]) if len(
+                    response_text) > 50 else repr(response_text)
                 # print(f"    [DEBUG] Response starts with: {first_chars}")
 
             # Parse unified JSON response
@@ -318,7 +326,8 @@ Output only valid JSON array of facts:
                 text = code_match.group(1)
             else:
                 lines = text.split('\n')
-                filtered = [l for l in lines if not l.strip().startswith('```')]
+                filtered = [
+                    l for l in lines if not l.strip().startswith('```')]
                 text = '\n'.join(filtered)
 
         text = text.strip()
@@ -343,7 +352,8 @@ Output only valid JSON array of facts:
                 parsed = repaired
             else:
                 # If repair returns a string, try parsing it
-                parsed = json.loads(repaired) if isinstance(repaired, str) else {}
+                parsed = json.loads(repaired) if isinstance(
+                    repaired, str) else {}
         except Exception as repair_error:
             # Fallback: try standard JSON parsing
             try:
@@ -409,7 +419,8 @@ Output only valid JSON array of facts:
 
     def _extract_entities(self, text: str, existing_entities: List[str]) -> List[ExtractedEntity]:
         """Extract entities from text."""
-        existing_str = "\n".join(f"- {e}" for e in existing_entities[:50]) if existing_entities else "None"
+        existing_str = "\n".join(
+            f"- {e}" for e in existing_entities[:50]) if existing_entities else "None"
 
         prompt = self.ENTITY_EXTRACTION_PROMPT.format(
             text=text[:6000],  # Limit text length
@@ -479,7 +490,8 @@ Output only valid JSON array of facts:
 
     def _extract_facts(self, text: str, entity_names: List[str]) -> List[ExtractedFact]:
         """Extract facts and assertions from text."""
-        entities_str = "\n".join(f"- {name}" for name in entity_names) if entity_names else "None identified"
+        entities_str = "\n".join(
+            f"- {name}" for name in entity_names) if entity_names else "None identified"
 
         prompt = self.FACT_EXTRACTION_PROMPT.format(
             text=text[:6000],
@@ -603,17 +615,20 @@ class RelationshipInferrer:
     ) -> List[ExtractedRelation]:
         """Infer additional relationships from extracted data."""
         inferred = []
-        existing_pairs = {(r.source_name.lower(), r.target_name.lower(), r.relation_type) for r in relations}
+        existing_pairs = {(r.source_name.lower(
+        ), r.target_name.lower(), r.relation_type) for r in relations}
 
         # Build entity lookup
         entity_by_name = {e.name.lower(): e for e in entities}
         orgs = [e for e in entities if e.type == 'Organization']
         people = [e for e in entities if e.type == 'Person']
-        documents = [e for e in entities if e.type in ('Document', 'Reference')]
+        documents = [e for e in entities if e.type in (
+            'Document', 'Reference')]
 
         # 1. Infer from entity roles
         for entity in entities:
-            props = entity.properties if isinstance(entity.properties, dict) else {}
+            props = entity.properties if isinstance(
+                entity.properties, dict) else {}
             role = props.get('role', '').lower()
 
             if role in RelationshipInferrer.ROLE_TO_RELATION:
@@ -623,13 +638,15 @@ class RelationshipInferrer:
                 if role in ('plaintiff', 'defendant', 'claimant', 'respondent'):
                     for doc in documents:
                         if 'case' in doc.name.lower() or 'v.' in doc.name or 'vs' in doc.name.lower():
-                            pair = (entity.name.lower(), doc.name.lower(), 'party_to')
+                            pair = (entity.name.lower(),
+                                    doc.name.lower(), 'party_to')
                             if pair not in existing_pairs:
                                 inferred.append(ExtractedRelation(
                                     source_name=entity.name,
                                     target_name=doc.name,
                                     relation_type='party_to',
-                                    properties={'inferred': True, 'role': role},
+                                    properties={
+                                        'inferred': True, 'role': role},
                                     confidence=0.7
                                 ))
                                 existing_pairs.add(pair)
@@ -637,9 +654,11 @@ class RelationshipInferrer:
                 # For attorney roles, link to clients (other parties)
                 elif role in ('attorney', 'counsel', 'lawyer'):
                     # Try to infer client from context
-                    client_hint = props.get('client', props.get('for', props.get('representing', '')))
+                    client_hint = props.get('client', props.get(
+                        'for', props.get('representing', '')))
                     if client_hint:
-                        pair = (entity.name.lower(), client_hint.lower(), 'represents')
+                        pair = (entity.name.lower(),
+                                client_hint.lower(), 'represents')
                         if pair not in existing_pairs:
                             inferred.append(ExtractedRelation(
                                 source_name=entity.name,
@@ -652,9 +671,11 @@ class RelationshipInferrer:
 
                 # For executive roles, link to organization
                 elif role in ('ceo', 'president', 'director', 'officer'):
-                    org_hint = props.get('company', props.get('organization', props.get('of', '')))
+                    org_hint = props.get('company', props.get(
+                        'organization', props.get('of', '')))
                     if org_hint:
-                        pair = (entity.name.lower(), org_hint.lower(), 'employed_by')
+                        pair = (entity.name.lower(),
+                                org_hint.lower(), 'employed_by')
                         if pair not in existing_pairs:
                             inferred.append(ExtractedRelation(
                                 source_name=entity.name,
@@ -666,8 +687,10 @@ class RelationshipInferrer:
                             existing_pairs.add(pair)
 
         # 2. Infer opposing party relationships
-        plaintiffs = [e for e in entities if e.properties.get('role', '').lower() in ('plaintiff', 'claimant')]
-        defendants = [e for e in entities if e.properties.get('role', '').lower() in ('defendant', 'respondent')]
+        plaintiffs = [e for e in entities if e.properties.get(
+            'role', '').lower() in ('plaintiff', 'claimant')]
+        defendants = [e for e in entities if e.properties.get(
+            'role', '').lower() in ('defendant', 'respondent')]
 
         for p in plaintiffs:
             for d in defendants:
@@ -677,27 +700,33 @@ class RelationshipInferrer:
                         source_name=p.name,
                         target_name=d.name,
                         relation_type='opposes',
-                        properties={'inferred': True, 'context': 'opposing parties'},
+                        properties={'inferred': True,
+                                    'context': 'opposing parties'},
                         confidence=0.9
                     ))
                     existing_pairs.add(pair)
 
         # 3. Infer from facts
         for fact in facts:
-            related = fact.related_entities if isinstance(fact.related_entities, list) else []
-            props = fact.properties if isinstance(fact.properties, dict) else {}
+            related = fact.related_entities if isinstance(
+                fact.related_entities, list) else []
+            props = fact.properties if isinstance(
+                fact.properties, dict) else {}
 
             # Payment facts -> paid/received relationships
             if fact.fact_type in ('payment', 'paid'):
                 if len(related) >= 2:
                     pair = (related[0].lower() if isinstance(related[0], str) else '',
-                           related[1].lower() if isinstance(related[1], str) else '', 'paid')
+                            related[1].lower() if isinstance(related[1], str) else '', 'paid')
                     if pair[0] and pair[1] and pair not in existing_pairs:
                         inferred.append(ExtractedRelation(
-                            source_name=related[0] if isinstance(related[0], str) else str(related[0]),
-                            target_name=related[1] if isinstance(related[1], str) else str(related[1]),
+                            source_name=related[0] if isinstance(
+                                related[0], str) else str(related[0]),
+                            target_name=related[1] if isinstance(
+                                related[1], str) else str(related[1]),
                             relation_type='paid',
-                            properties={'inferred': True, 'amount': props.get('amount', '')},
+                            properties={'inferred': True,
+                                        'amount': props.get('amount', '')},
                             confidence=0.7
                         ))
                         existing_pairs.add(pair)
@@ -705,17 +734,20 @@ class RelationshipInferrer:
             # Breach facts -> breached relationship
             elif fact.fact_type == 'breach':
                 for entity_ref in related:
-                    entity_name = entity_ref if isinstance(entity_ref, str) else str(entity_ref)
+                    entity_name = entity_ref if isinstance(
+                        entity_ref, str) else str(entity_ref)
                     # Find the contract/agreement
                     for doc in documents:
                         if any(word in doc.name.lower() for word in ['agreement', 'contract', 'covenant']):
-                            pair = (entity_name.lower(), doc.name.lower(), 'breached')
+                            pair = (entity_name.lower(),
+                                    doc.name.lower(), 'breached')
                             if pair not in existing_pairs:
                                 inferred.append(ExtractedRelation(
                                     source_name=entity_name,
                                     target_name=doc.name,
                                     relation_type='breached',
-                                    properties={'inferred': True, 'fact': fact.text[:100]},
+                                    properties={'inferred': True,
+                                                'fact': fact.text[:100]},
                                     confidence=0.6
                                 ))
                                 existing_pairs.add(pair)
@@ -723,7 +755,8 @@ class RelationshipInferrer:
             # Obligation facts -> binds relationship
             elif fact.fact_type == 'obligation':
                 for entity_ref in related:
-                    entity_name = entity_ref if isinstance(entity_ref, str) else str(entity_ref)
+                    entity_name = entity_ref if isinstance(
+                        entity_ref, str) else str(entity_ref)
                     for doc in documents:
                         pair = (doc.name.lower(), entity_name.lower(), 'binds')
                         if pair not in existing_pairs:
@@ -731,7 +764,8 @@ class RelationshipInferrer:
                                 source_name=doc.name,
                                 target_name=entity_name,
                                 relation_type='binds',
-                                properties={'inferred': True, 'obligation': fact.text[:100]},
+                                properties={'inferred': True,
+                                            'obligation': fact.text[:100]},
                                 confidence=0.6
                             ))
                             existing_pairs.add(pair)
@@ -748,16 +782,19 @@ class RelationshipInferrer:
                 if org_name_lower in other_name_lower or other_name_lower in org_name_lower:
                     # Longer name is likely the full/parent entity
                     if len(org.name) > len(other_org.name):
-                        pair = (other_org.name.lower(), org.name.lower(), 'affiliated_with')
+                        pair = (other_org.name.lower(),
+                                org.name.lower(), 'affiliated_with')
                     else:
-                        pair = (org.name.lower(), other_org.name.lower(), 'affiliated_with')
+                        pair = (org.name.lower(),
+                                other_org.name.lower(), 'affiliated_with')
 
                     if pair not in existing_pairs:
                         inferred.append(ExtractedRelation(
                             source_name=pair[0],
                             target_name=pair[1],
                             relation_type='affiliated_with',
-                            properties={'inferred': True, 'reason': 'name_similarity'},
+                            properties={'inferred': True,
+                                        'reason': 'name_similarity'},
                             confidence=0.5
                         ))
                         existing_pairs.add(pair)

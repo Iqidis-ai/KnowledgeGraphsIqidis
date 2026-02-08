@@ -23,7 +23,7 @@ class VectorStore:
     def __init__(self, db: 'PostgreSQLDatabase', matter_id: str, dimension: int = EMBEDDING_DIMENSION):
         """
         Initialize vector store with PostgreSQL backend.
-        
+
         Args:
             db: PostgreSQL database instance
             matter_id: UUID of the matter
@@ -50,7 +50,7 @@ class VectorStore:
         """Load embeddings from PostgreSQL into FAISS index."""
         if self.index is None:
             return
-        
+
         embeddings = self.db.get_all_embeddings()
         for entity_id, vector_bytes in embeddings:
             # Convert bytes to numpy array
@@ -72,7 +72,8 @@ class VectorStore:
     def add(self, entity_id: str, embedding: np.ndarray):
         """Add an embedding for an entity."""
         if embedding.shape[0] != self.dimension:
-            raise ValueError(f"Expected dimension {self.dimension}, got {embedding.shape[0]}")
+            raise ValueError(
+                f"Expected dimension {self.dimension}, got {embedding.shape[0]}")
 
         # Normalize for cosine similarity
         embedding = embedding.astype(np.float32)
@@ -94,13 +95,49 @@ class VectorStore:
             # Fallback: store in dictionary
             self._fallback_vectors[entity_id] = embedding
 
+    def add_batch(self, items: list):
+        """Add multiple embeddings at once. items = [(entity_id, embedding), ...]
+
+        Uses batch DB storage for dramatically fewer round-trips.
+        """
+        if not items:
+            return
+
+        db_batch = []  # (entity_id, vector_bytes)
+        faiss_batch = []  # (entity_id, normalized_embedding)
+
+        for entity_id, embedding in items:
+            if embedding.shape[0] != self.dimension:
+                continue
+            embedding = embedding.astype(np.float32)
+            norm = np.linalg.norm(embedding)
+            if norm > 0:
+                embedding = embedding / norm
+            db_batch.append((entity_id, embedding.tobytes()))
+            faiss_batch.append((entity_id, embedding))
+
+        # Batch store in PostgreSQL
+        self.db.store_embeddings_batch(db_batch)
+
+        # Add to FAISS index
+        if faiss is not None and self.index is not None:
+            for entity_id, embedding in faiss_batch:
+                idx = self.index.ntotal
+                self.index.add(embedding.reshape(1, -1))
+                self.id_to_idx[entity_id] = idx
+                self.idx_to_id[idx] = entity_id
+        else:
+            for entity_id, embedding in faiss_batch:
+                self._fallback_vectors[entity_id] = embedding
+
     def search(self, query_embedding: np.ndarray, k: int = 10) -> List[Tuple[str, float]]:
         """Search for similar entities.
 
         Returns list of (entity_id, distance) tuples, sorted by similarity.
         """
         if query_embedding.shape[0] != self.dimension:
-            raise ValueError(f"Expected dimension {self.dimension}, got {query_embedding.shape[0]}")
+            raise ValueError(
+                f"Expected dimension {self.dimension}, got {query_embedding.shape[0]}")
 
         # Normalize query
         query_embedding = query_embedding.astype(np.float32)
@@ -113,7 +150,8 @@ class VectorStore:
                 return []
 
             k = min(k, self.index.ntotal)
-            distances, indices = self.index.search(query_embedding.reshape(1, -1), k)
+            distances, indices = self.index.search(
+                query_embedding.reshape(1, -1), k)
 
             results = []
             for dist, idx in zip(distances[0], indices[0]):
@@ -153,7 +191,7 @@ class VectorStore:
         """Reload from PostgreSQL."""
         self.id_to_idx = {}
         self.idx_to_id = {}
-        
+
         if faiss is not None and self.index is not None:
             # Reset and reload FAISS index
             self.index = faiss.IndexFlatL2(self.dimension)
@@ -180,11 +218,12 @@ class EmbeddingGenerator:
     def __init__(self, api_key: str):
         from google import genai
         from google.genai import types
-        
+
         self.client = genai.Client(api_key=api_key)
         self.types = types
         self.model_name = "gemini-embedding-001"  # Correct model name for new SDK
-        print(f"✓ Initialized EmbeddingGenerator with model: {self.model_name}")
+        print(
+            f"✓ Initialized EmbeddingGenerator with model: {self.model_name}")
 
     def generate(self, text: str) -> np.ndarray:
         """Generate embedding for text."""
@@ -205,25 +244,35 @@ class EmbeddingGenerator:
             print(f"Error generating embedding: {e}")
             return np.zeros(EMBEDDING_DIMENSION, dtype=np.float32)
 
-    def generate_batch(self, texts: List[str]) -> List[np.ndarray]:
-        """Generate embeddings for multiple texts."""
-        try:
-            # New SDK supports batch embedding natively
-            truncated_texts = [text[:2048] for text in texts]
-            result = self.client.models.embed_content(
-                model=self.model_name,
-                contents=truncated_texts,
-                config=self.types.EmbedContentConfig(
-                    task_type="RETRIEVAL_DOCUMENT",
-                    output_dimensionality=EMBEDDING_DIMENSION
+    def generate_batch(self, texts: List[str], _batch_size: int = 100) -> List[np.ndarray]:
+        """Generate embeddings for multiple texts.
+
+        Gemini embed_content API allows at most 100 items per request,
+        so we chunk the input automatically.
+        """
+        all_embeddings: List[np.ndarray] = []
+        truncated_texts = [text[:2048] for text in texts]
+        for i in range(0, len(truncated_texts), _batch_size):
+            batch = truncated_texts[i:i + _batch_size]
+            try:
+                result = self.client.models.embed_content(
+                    model=self.model_name,
+                    contents=batch,
+                    config=self.types.EmbedContentConfig(
+                        task_type="RETRIEVAL_DOCUMENT",
+                        output_dimensionality=EMBEDDING_DIMENSION
+                    )
                 )
-            )
-            embeddings = [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
-            return embeddings
-        except Exception as e:
-            print(f"Error generating batch embeddings: {e}")
-            # Fallback to individual generation
-            return [self.generate(text) for text in texts]
+                all_embeddings.extend(
+                    np.array(emb.values, dtype=np.float32)
+                    for emb in result.embeddings
+                )
+            except Exception as e:
+                print(
+                    f"Error generating batch embeddings (batch {i // _batch_size}): {e}")
+                # Fallback to individual generation for this chunk
+                all_embeddings.extend(self.generate(text) for text in batch)
+        return all_embeddings
 
     def generate_query_embedding(self, query: str) -> np.ndarray:
         """Generate embedding for a query (different task type for retrieval)."""

@@ -21,7 +21,7 @@ from flask_cors import CORS
 from google import genai
 
 # Import from core
-from ..core import KnowledgeGraph, GEMINI_API_KEY, POSTGRES_URL
+from ..core import KnowledgeGraph, GEMINI_API_KEY, POSTGRES_URL, get_postgres_url
 from ..core.storage.postgres_database import PostgreSQLDatabase
 from ..visualization.postgres_graph_exporter import PostgreSQLGraphExporter
 
@@ -38,14 +38,22 @@ _nl_edit_client = None
 _nl_edit_model = None
 
 
-def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY):
-    """Initialize the API for a specific matter."""
+def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
+                db_url: Optional[str] = None):
+    """Initialize the API for a specific matter.
+
+    Args:
+        matter_name: Matter ID (UUID)
+        api_key: Gemini API key
+        db_url: Optional explicit PostgreSQL URL (overrides env-based default)
+    """
     global _kg, _exporter, _matter_name, _nl_edit_client, _nl_edit_model
     _matter_name = matter_name
-    _kg = KnowledgeGraph(matter_name, api_key=api_key)
-    
+    resolved_url = db_url or get_postgres_url()
+    _kg = KnowledgeGraph(matter_name, api_key=api_key, db_url=resolved_url)
+
     # Initialize PostgreSQL exporter
-    _exporter = PostgreSQLGraphExporter(POSTGRES_URL, matter_name)
+    _exporter = PostgreSQLGraphExporter(resolved_url, matter_name)
 
     # Configure NL edit model
     _nl_edit_client = genai.Client(api_key=api_key)
@@ -54,7 +62,8 @@ def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY):
 
 def _ensure_matter(matter_id: Optional[str] = None):
     """Ensure API is initialized for the given matter_id. Uses query param, X-Matter-Id header, or passed arg."""
-    mid = matter_id or request.args.get('matter_id') or request.headers.get('X-Matter-Id')
+    mid = matter_id or request.args.get(
+        'matter_id') or request.headers.get('X-Matter-Id')
     if mid and mid != _matter_name:
         init_matter(mid)
     elif _kg is None:
@@ -95,15 +104,36 @@ def api_list_matters():
 
 @api.route('/extract-from-iqidis', methods=['POST'])
 def api_extract_from_iqidis():
-    """Extract KG from Iqidis documents. Stores graph in PostgreSQL."""
+    """Extract KG from documents sent by Next.js frontend. Stores graph in PostgreSQL.
+
+    Optional request fields:
+        db_url  – explicit PostgreSQL connection string (overrides env default)
+        env     – environment name ("development", "staging", "production")
+                  to select the matching *_POSTGRES_URL from .env
+    """
     try:
         data = request.get_json() or {}
         matter_id = data.get('matter_id')
+        documents = data.get('documents', [])
+        options = data.get('options', {})
+
+        # Resolve database URL: explicit db_url → env name → default
+        db_url = data.get('db_url')
+        if not db_url:
+            env_name = data.get('env')
+            db_url = get_postgres_url(env_name) if env_name else None
+
         if not matter_id:
             return jsonify({'error': 'matter_id is required'}), 400
-        from ..core.iqidis_extract import extract_from_iqidis_matter
-        result = extract_from_iqidis_matter(matter_id, GEMINI_API_KEY, verbose=True)
-        init_matter(matter_id)
+        if not documents:
+            return jsonify({'error': 'documents array is required'}), 400
+
+        from ..core.iqidis_extract import extract_from_frontend_payload
+        result = extract_from_frontend_payload(
+            matter_id, documents, options, GEMINI_API_KEY,
+            verbose=True, db_url=db_url
+        )
+        init_matter(matter_id, db_url=db_url)
         return jsonify(result)
     except Exception as e:
         import traceback
@@ -130,7 +160,8 @@ def api_graph():
     _ensure_matter()
     exp = get_exporter()
 
-    include_facts = request.args.get('include_facts', 'false').lower() == 'true'
+    include_facts = request.args.get(
+        'include_facts', 'false').lower() == 'true'
     min_connections = int(request.args.get('min_connections', 0))
     limit = int(request.args.get('limit', 1000))
 
@@ -232,8 +263,9 @@ def api_delete_entity(entity_id):
         cursor = exp.conn.cursor()
 
         cursor.execute('DELETE FROM edges WHERE source_entity_id = ? OR target_entity_id = ?',
-                      (entity_id, entity_id))
-        cursor.execute('DELETE FROM mentions WHERE entity_id = ?', (entity_id,))
+                       (entity_id, entity_id))
+        cursor.execute(
+            'DELETE FROM mentions WHERE entity_id = ?', (entity_id,))
         cursor.execute('DELETE FROM aliases WHERE entity_id = ?', (entity_id,))
         cursor.execute('DELETE FROM entities WHERE id = ?', (entity_id,))
 
@@ -385,7 +417,8 @@ def api_query():
             target_idx = id_to_index.get(target_id)
 
             if source_idx is not None and target_idx is not None:
-                link_key = (source_idx, target_idx, edge.get('relation_type', ''))
+                link_key = (source_idx, target_idx,
+                            edge.get('relation_type', ''))
                 if link_key not in seen_links:
                     seen_links.add(link_key)
                     links.append({
@@ -555,11 +588,11 @@ JSON response:"""
             entity_to_keep = parsed.get('entity_to_keep', '')
 
             cursor.execute('SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ? LIMIT 1',
-                          (f'%{entity_to_remove}%',))
+                           (f'%{entity_to_remove}%',))
             remove_row = cursor.fetchone()
 
             cursor.execute('SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ? LIMIT 1',
-                          (f'%{entity_to_keep}%',))
+                           (f'%{entity_to_keep}%',))
             keep_row = cursor.fetchone()
 
             if not remove_row:
@@ -580,7 +613,7 @@ JSON response:"""
             entity_name = parsed.get('entity_name', '')
 
             cursor.execute('SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ? LIMIT 1',
-                          (f'%{entity_name}%',))
+                           (f'%{entity_name}%',))
             row = cursor.fetchone()
 
             if not row:
@@ -588,9 +621,11 @@ JSON response:"""
 
             entity_id = row['id']
             cursor.execute('DELETE FROM edges WHERE source_entity_id = ? OR target_entity_id = ?',
-                          (entity_id, entity_id))
-            cursor.execute('DELETE FROM mentions WHERE entity_id = ?', (entity_id,))
-            cursor.execute('DELETE FROM aliases WHERE entity_id = ?', (entity_id,))
+                           (entity_id, entity_id))
+            cursor.execute(
+                'DELETE FROM mentions WHERE entity_id = ?', (entity_id,))
+            cursor.execute(
+                'DELETE FROM aliases WHERE entity_id = ?', (entity_id,))
             cursor.execute('DELETE FROM entities WHERE id = ?', (entity_id,))
             exp.conn.commit()
 
@@ -624,11 +659,11 @@ JSON response:"""
             relation = parsed.get('relation', 'related_to')
 
             cursor.execute('SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ? LIMIT 1',
-                          (f'%{source_name}%',))
+                           (f'%{source_name}%',))
             source_row = cursor.fetchone()
 
             cursor.execute('SELECT id, canonical_name FROM entities WHERE canonical_name LIKE ? LIMIT 1',
-                          (f'%{target_name}%',))
+                           (f'%{target_name}%',))
             target_row = cursor.fetchone()
 
             if not source_row:
@@ -654,14 +689,14 @@ JSON response:"""
             new_type = parsed.get('new_type', '')
 
             cursor.execute('SELECT id, canonical_name, type FROM entities WHERE canonical_name LIKE ? LIMIT 1',
-                          (f'%{entity_name}%',))
+                           (f'%{entity_name}%',))
             row = cursor.fetchone()
 
             if not row:
                 return jsonify({'success': False, 'error': f'Entity "{entity_name}" not found'})
 
             cursor.execute('UPDATE entities SET type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                          (new_type, row['id']))
+                           (new_type, row['id']))
             exp.conn.commit()
 
             return jsonify({
@@ -800,7 +835,8 @@ def api_batch_merge():
             merge_id = merge.get('merge_id')
 
             if not keep_id or not merge_id:
-                results.append({'success': False, 'error': 'Missing keep_id or merge_id'})
+                results.append(
+                    {'success': False, 'error': 'Missing keep_id or merge_id'})
                 continue
 
             try:
@@ -920,7 +956,7 @@ def api_timeline():
                 LIMIT 10
             ''', (entity['id'], entity['id']))
             related = [{'name': r['canonical_name'], 'type': r['type'], 'relation': r['relation_type']}
-                      for r in cursor.fetchall()]
+                       for r in cursor.fetchall()]
 
             timeline.append({
                 'id': entity['id'],
@@ -934,7 +970,8 @@ def api_timeline():
 
         for entity in fact_entities:
             props = json.loads(entity.get('properties', '{}') or '{}')
-            parsed = _parse_date(props.get('due_date', '') or props.get('date', '') or entity['canonical_name'])
+            parsed = _parse_date(props.get('due_date', '') or props.get(
+                'date', '') or entity['canonical_name'])
 
             timeline.append({
                 'id': entity['id'],
@@ -947,7 +984,8 @@ def api_timeline():
             })
 
         # Sort by parsed date (entries without dates go at the end)
-        timeline.sort(key=lambda x: (x['date_parsed'] is None, x['date_parsed'] or ''))
+        timeline.sort(key=lambda x: (
+            x['date_parsed'] is None, x['date_parsed'] or ''))
 
         return jsonify({
             'total': len(timeline),
@@ -1015,14 +1053,16 @@ def api_export():
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 # Entities CSV
                 entities_csv = io.StringIO()
-                writer = csv.DictWriter(entities_csv, fieldnames=['id', 'canonical_name', 'type', 'properties', 'confidence'])
+                writer = csv.DictWriter(entities_csv, fieldnames=[
+                                        'id', 'canonical_name', 'type', 'properties', 'confidence'])
                 writer.writeheader()
                 writer.writerows(entities)
                 zf.writestr('entities.csv', entities_csv.getvalue())
 
                 # Edges CSV
                 edges_csv = io.StringIO()
-                writer = csv.DictWriter(edges_csv, fieldnames=['id', 'source_entity_id', 'target_entity_id', 'source_name', 'target_name', 'relation_type', 'properties'])
+                writer = csv.DictWriter(edges_csv, fieldnames=[
+                                        'id', 'source_entity_id', 'target_entity_id', 'source_name', 'target_name', 'relation_type', 'properties'])
                 writer.writeheader()
                 writer.writerows(edges)
                 zf.writestr('edges.csv', edges_csv.getvalue())
@@ -1031,7 +1071,8 @@ def api_export():
             return Response(
                 zip_buffer.getvalue(),
                 mimetype='application/zip',
-                headers={'Content-Disposition': f'attachment; filename={_matter_name}_export.zip'}
+                headers={
+                    'Content-Disposition': f'attachment; filename={_matter_name}_export.zip'}
             )
 
         elif format_type == 'graphml':
@@ -1039,16 +1080,21 @@ def api_export():
             from flask import Response
 
             graphml = ['<?xml version="1.0" encoding="UTF-8"?>']
-            graphml.append('<graphml xmlns="http://graphml.graphdrawing.org/xmlns">')
-            graphml.append('  <key id="name" for="node" attr.name="name" attr.type="string"/>')
-            graphml.append('  <key id="type" for="node" attr.name="type" attr.type="string"/>')
-            graphml.append('  <key id="relation" for="edge" attr.name="relation" attr.type="string"/>')
+            graphml.append(
+                '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">')
+            graphml.append(
+                '  <key id="name" for="node" attr.name="name" attr.type="string"/>')
+            graphml.append(
+                '  <key id="type" for="node" attr.name="type" attr.type="string"/>')
+            graphml.append(
+                '  <key id="relation" for="edge" attr.name="relation" attr.type="string"/>')
             graphml.append('  <graph id="G" edgedefault="directed">')
 
             # Add nodes
             for e in entities:
                 eid = e['id'].replace('-', '_')
-                name = e['canonical_name'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+                name = e['canonical_name'].replace('&', '&amp;').replace(
+                    '<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
                 graphml.append(f'    <node id="{eid}">')
                 graphml.append(f'      <data key="name">{name}</data>')
                 graphml.append(f'      <data key="type">{e["type"]}</data>')
@@ -1069,7 +1115,8 @@ def api_export():
             return Response(
                 '\n'.join(graphml),
                 mimetype='application/xml',
-                headers={'Content-Disposition': f'attachment; filename={_matter_name}.graphml'}
+                headers={
+                    'Content-Disposition': f'attachment; filename={_matter_name}.graphml'}
             )
 
         else:
@@ -1162,7 +1209,8 @@ def _compute_betweenness(adj: Dict[str, set], entity_ids: set, sample_size: int 
 def api_analytics():
     """Compute graph analytics: degree centrality, PageRank, betweenness."""
     limit = int(request.args.get('limit', 50))
-    metric = request.args.get('metric', 'all')  # degree, pagerank, betweenness, all
+    # degree, pagerank, betweenness, all
+    metric = request.args.get('metric', 'all')
 
     try:
         exp = get_exporter()
@@ -1198,9 +1246,11 @@ def api_analytics():
             degree_centrality = {}
             for eid in entities:
                 total_degree = in_degree.get(eid, 0) + out_degree.get(eid, 0)
-                degree_centrality[eid] = total_degree / (2 * (n - 1)) if n > 1 else 0
+                degree_centrality[eid] = total_degree / \
+                    (2 * (n - 1)) if n > 1 else 0
 
-            sorted_degree = sorted(degree_centrality.items(), key=lambda x: x[1], reverse=True)
+            sorted_degree = sorted(
+                degree_centrality.items(), key=lambda x: x[1], reverse=True)
             results['degree_centrality'] = [
                 {
                     'entity_id': eid,
@@ -1227,7 +1277,8 @@ def api_analytics():
                 undirected_adj[tgt].add(src)
 
             pagerank = _compute_pagerank(undirected_adj)
-            sorted_pr = sorted(pagerank.items(), key=lambda x: x[1], reverse=True)
+            sorted_pr = sorted(
+                pagerank.items(), key=lambda x: x[1], reverse=True)
             results['pagerank'] = [
                 {
                     'entity_id': eid,
@@ -1251,8 +1302,10 @@ def api_analytics():
                 undirected_adj[src].add(tgt)
                 undirected_adj[tgt].add(src)
 
-            betweenness = _compute_betweenness(undirected_adj, set(entities.keys()))
-            sorted_bc = sorted(betweenness.items(), key=lambda x: x[1], reverse=True)
+            betweenness = _compute_betweenness(
+                undirected_adj, set(entities.keys()))
+            sorted_bc = sorted(betweenness.items(),
+                               key=lambda x: x[1], reverse=True)
             results['betweenness'] = [
                 {
                     'entity_id': eid,
@@ -1307,7 +1360,8 @@ def api_shortest_path():
         edges = [dict(row) for row in cursor.fetchall()]
 
         # Build undirected adjacency with edge info
-        adj: Dict[str, List[Tuple[str, str, str]]] = {}  # node -> [(neighbor, edge_id, relation)]
+        # node -> [(neighbor, edge_id, relation)]
+        adj: Dict[str, List[Tuple[str, str, str]]] = {}
         for edge in edges:
             src, tgt = edge['source_entity_id'], edge['target_entity_id']
             if src not in adj:
@@ -1554,7 +1608,8 @@ def api_graph_summary():
                 LIMIT 30
             ''')
             for row in cursor.fetchall():
-                props = json.loads(row['properties']) if row['properties'] else {}
+                props = json.loads(
+                    row['properties']) if row['properties'] else {}
                 key_facts.append({
                     'type': props.get('fact_type', 'fact'),
                     'text': props.get('full_text', row['canonical_name'])[:300]
@@ -1575,9 +1630,9 @@ def api_graph_summary():
         # Build summary prompt
         summary_data = {
             'key_parties': [{'name': e['canonical_name'], 'type': e['type'], 'connections': e['degree']}
-                           for e in key_entities if e['type'] in ('Organization', 'Person')][:15],
+                            for e in key_entities if e['type'] in ('Organization', 'Person')][:15],
             'key_relationships': [f"{r['source_name']} {r['relation_type']} {r['target_name']}"
-                                 for r in key_relationships[:20]],
+                                  for r in key_relationships[:20]],
             'key_facts': [f"[{f['type']}] {f['text']}" for f in key_facts[:15]],
             'money_amounts': [e['canonical_name'] for e in money_entities[:10]],
             'key_dates': date_entities[:10]
@@ -1672,7 +1727,8 @@ def api_relationship_analysis():
 
         # Sort by count
         sorted_relations = sorted(relation_counts.items(), key=lambda x: -x[1])
-        sorted_patterns = sorted(relation_patterns.items(), key=lambda x: -x[1])
+        sorted_patterns = sorted(
+            relation_patterns.items(), key=lambda x: -x[1])
 
         # Find bidirectional relationships
         bidirectional_pairs = []
@@ -1730,7 +1786,7 @@ def api_similar_entities(entity_id):
         # Get the entity
         cursor = exp.conn.cursor()
         cursor.execute('SELECT id, canonical_name, type, properties FROM entities WHERE id = ?',
-                      (entity_id,))
+                       (entity_id,))
         entity_row = cursor.fetchone()
 
         if not entity_row:
@@ -1748,7 +1804,8 @@ def api_similar_entities(entity_id):
         query_embedding = embedding_gen.generate_query_embedding(search_text)
 
         # Search vector store
-        similar = kg.vector_store.search(query_embedding, k=limit + 1)  # +1 to exclude self
+        similar = kg.vector_store.search(
+            query_embedding, k=limit + 1)  # +1 to exclude self
 
         # Get entity details for results
         similar_entities = []
@@ -1759,7 +1816,7 @@ def api_similar_entities(entity_id):
                 continue
 
             cursor.execute('SELECT id, canonical_name, type, properties, confidence FROM entities WHERE id = ?',
-                          (sim_id,))
+                           (sim_id,))
             sim_row = cursor.fetchone()
             if sim_row:
                 sim_entity = dict(sim_row)
@@ -1808,14 +1865,15 @@ def api_similar_by_name():
         query_embedding = embedding_gen.generate_query_embedding(search_text)
 
         # Search vector store
-        similar = kg.vector_store.search(query_embedding, k=limit * 2)  # Get extra for filtering
+        similar = kg.vector_store.search(
+            query_embedding, k=limit * 2)  # Get extra for filtering
 
         # Get entity details
         cursor = exp.conn.cursor()
         results = []
         for sim_id, score in similar:
             cursor.execute('SELECT id, canonical_name, type, properties, confidence FROM entities WHERE id = ?',
-                          (sim_id,))
+                           (sim_id,))
             row = cursor.fetchone()
             if row:
                 entity = dict(row)
@@ -1858,13 +1916,15 @@ def api_importance():
         # Get entities
         if entity_type:
             cursor.execute('SELECT id, canonical_name, type, confidence FROM entities WHERE type = ?',
-                          (entity_type,))
+                           (entity_type,))
         else:
-            cursor.execute('SELECT id, canonical_name, type, confidence FROM entities')
+            cursor.execute(
+                'SELECT id, canonical_name, type, confidence FROM entities')
         entities = {row['id']: dict(row) for row in cursor.fetchall()}
 
         # Get edges
-        cursor.execute('SELECT source_entity_id, target_entity_id, relation_type FROM edges')
+        cursor.execute(
+            'SELECT source_entity_id, target_entity_id, relation_type FROM edges')
         edges = [dict(row) for row in cursor.fetchall()]
 
         # Calculate metrics
@@ -1888,7 +1948,8 @@ def api_importance():
             FROM mentions
             GROUP BY entity_id
         ''')
-        mention_counts = {row['entity_id']: row['mention_count'] for row in cursor.fetchall()}
+        mention_counts = {row['entity_id']: row['mention_count']
+                          for row in cursor.fetchall()}
 
         # Get alias counts (more aliases = more prominent)
         cursor.execute('''
@@ -1896,7 +1957,8 @@ def api_importance():
             FROM aliases
             GROUP BY entity_id
         ''')
-        alias_counts = {row['entity_id']: row['alias_count'] for row in cursor.fetchall()}
+        alias_counts = {row['entity_id']: row['alias_count']
+                        for row in cursor.fetchall()}
 
         # Build undirected adjacency for PageRank
         adj = {}
@@ -1940,7 +2002,8 @@ def api_importance():
 
             # Composite score (weighted combination)
             score = (
-                0.25 * min(total_degree / 20, 1.0) +  # Degree (normalized to ~20)
+                # Degree (normalized to ~20)
+                0.25 * min(total_degree / 20, 1.0) +
                 0.25 * pagerank * n +                  # PageRank (scaled up)
                 0.20 * min(mentions / 10, 1.0) +       # Mentions
                 0.15 * min(rel_types / 5, 1.0) +       # Relationship diversity
@@ -1965,7 +2028,8 @@ def api_importance():
             })
 
         # Sort by importance score
-        importance_scores.sort(key=lambda x: x['importance_score'], reverse=True)
+        importance_scores.sort(
+            key=lambda x: x['importance_score'], reverse=True)
 
         return jsonify({
             'total_entities': len(entities),
@@ -1998,7 +2062,8 @@ def api_temporal():
             result = query_engine.query_by_timeframe(query)
         else:
             # Use explicit year range
-            result = query_engine.temporal_query(start_year=start_year, end_year=end_year)
+            result = query_engine.temporal_query(
+                start_year=start_year, end_year=end_year)
 
         return jsonify(result)
 
@@ -2091,7 +2156,8 @@ def api_clusters():
 
         # Get entities
         if entity_type:
-            cursor.execute('SELECT id, canonical_name, type FROM entities WHERE type = ?', (entity_type,))
+            cursor.execute(
+                'SELECT id, canonical_name, type FROM entities WHERE type = ?', (entity_type,))
         else:
             cursor.execute('SELECT id, canonical_name, type FROM entities')
         entities = {row['id']: dict(row) for row in cursor.fetchall()}
@@ -2108,7 +2174,8 @@ def api_clusters():
         clusters = []
         for component in components:
             if len(component) >= min_size:
-                cluster_entities = [entities[eid] for eid in component if eid in entities]
+                cluster_entities = [entities[eid]
+                                    for eid in component if eid in entities]
                 # Group by type
                 by_type: Dict[str, int] = {}
                 for e in cluster_entities:
@@ -2117,7 +2184,8 @@ def api_clusters():
 
                 clusters.append({
                     'size': len(cluster_entities),
-                    'entities': cluster_entities[:20],  # Limit to first 20 for display
+                    # Limit to first 20 for display
+                    'entities': cluster_entities[:20],
                     'types': by_type,
                     'sample_names': [e['canonical_name'] for e in cluster_entities[:5]]
                 })
@@ -2227,7 +2295,8 @@ def api_narrative_timeline():
 
         kg = get_kg()
         query_engine = NLQueryEngine(kg.db, kg.vector_store)
-        result = query_engine.generate_narrative_timeline(start_year=start_year, end_year=end_year)
+        result = query_engine.generate_narrative_timeline(
+            start_year=start_year, end_year=end_year)
 
         return jsonify(result)
 
@@ -2285,14 +2354,16 @@ def api_important_entities():
     types_param = request.args.get('types', '')
     top_k = request.args.get('top_k', 20, type=int)
 
-    entity_types = [t.strip() for t in types_param.split(',') if t.strip()] or None
+    entity_types = [t.strip()
+                    for t in types_param.split(',') if t.strip()] or None
 
     try:
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
         query_engine = NLQueryEngine(kg.db, kg.vector_store)
-        results = query_engine.get_important_entities(entity_types=entity_types, top_k=top_k)
+        results = query_engine.get_important_entities(
+            entity_types=entity_types, top_k=top_k)
 
         return jsonify({
             'entities': results,

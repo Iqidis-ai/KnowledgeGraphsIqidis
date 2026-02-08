@@ -122,7 +122,7 @@ python visualization_server.py
 python visualization_server.py --matter my_case --port 8080
 ```
 
-Then open http://localhost:5000 in your browser.
+Then open http://localhost:8000 in your browser.
 
 ### 5. Programmatic Usage (SDK)
 
