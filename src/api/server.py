@@ -85,6 +85,14 @@ def get_exporter() -> PostgreSQLGraphExporter:
     return _exporter
 
 
+# ==================== Health Check ====================
+
+@api.route('/health')
+def api_health():
+    """Lightweight health check for monitoring."""
+    return jsonify({'status': 'ok'}), 200
+
+
 # ==================== Iqidis Integration (documents from Iqidis, KG stored locally) ====================
 
 @api.route('/matters', methods=['GET'])

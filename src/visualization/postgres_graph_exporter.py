@@ -33,27 +33,36 @@ class PostgreSQLGraphExporter:
         """
         self.connection_string = connection_string
         self.matter_id = matter_id
-        self.conn = psycopg2.connect(connection_string)
-        self.conn.autocommit = False
+        self.conn = self._new_connection()
         psycopg2.extras.register_uuid()
+
+    def _new_connection(self):
+        """Create a new PostgreSQL connection with TCP keepalives."""
+        conn = psycopg2.connect(
+            self.connection_string,
+            keepalives=1,
+            keepalives_idle=60,
+            keepalives_interval=15,
+            keepalives_count=3,
+        )
+        conn.autocommit = False
+        return conn
 
     def _ensure_connection(self):
         """Reconnect if the connection has been closed or dropped."""
         try:
             if self.conn.closed:
                 raise psycopg2.InterfaceError("connection already closed")
-            # Actually ping the server to detect stale connections
             cur = self.conn.cursor()
             cur.execute("SELECT 1")
             cur.close()
-            self.conn.rollback()  # Clear any pending transaction state
+            self.conn.rollback()
         except (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError):
             try:
                 self.conn.close()
             except Exception:
                 pass
-            self.conn = psycopg2.connect(self.connection_string)
-            self.conn.autocommit = False
+            self.conn = self._new_connection()
 
     def _get_cursor(self):
         """Get a cursor with dict-like row factory, reconnecting if needed."""
