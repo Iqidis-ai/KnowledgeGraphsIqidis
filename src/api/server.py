@@ -1162,8 +1162,8 @@ def api_export():
 
             # Add nodes
             for e in entities:
-                eid = e['id'].replace('-', '_')
-                name = e['canonical_name'].replace('&', '&amp;').replace(
+                eid = str(e['id']).replace('-', '_')
+                name = str(e['canonical_name']).replace('&', '&amp;').replace(
                     '<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
                 graphml.append(f'    <node id="{eid}">')
                 graphml.append(f'      <data key="name">{name}</data>')
@@ -1172,11 +1172,12 @@ def api_export():
 
             # Add edges
             for edge in edges:
-                src = edge['source_entity_id'].replace('-', '_')
-                tgt = edge['target_entity_id'].replace('-', '_')
-                rel = edge['relation_type']
+                src = str(edge['source_entity_id']).replace('-', '_')
+                tgt = str(edge['target_entity_id']).replace('-', '_')
+                rel = str(edge['relation_type'])
+                rel_escaped = rel.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 graphml.append(f'    <edge source="{src}" target="{tgt}">')
-                graphml.append(f'      <data key="relation">{rel}</data>')
+                graphml.append(f'      <data key="relation">{rel_escaped}</data>')
                 graphml.append(f'    </edge>')
 
             graphml.append('  </graph>')
