@@ -2673,16 +2673,23 @@
         async function exportGraph(format) {
             try {
                 const url = `${API_BASE}/api/export?format=${format}&include_facts=true`;
+                // Always use fetch so the matter_id interceptor injects the param
+                const response = await fetch(url);
+                if (!response.ok) {
+                    const errText = await response.text();
+                    throw new Error(errText || `Export failed (${response.status})`);
+                }
 
                 if (format === 'json') {
-                    // For JSON, fetch and download
-                    const response = await fetch(url);
                     const data = await response.json();
                     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                     downloadBlob(blob, 'knowledge_graph.json');
-                } else {
-                    // For CSV and GraphML, trigger direct download
-                    window.location.href = url;
+                } else if (format === 'csv') {
+                    const blob = await response.blob();
+                    downloadBlob(blob, 'knowledge_graph_export.zip');
+                } else if (format === 'graphml') {
+                    const blob = await response.blob();
+                    downloadBlob(blob, 'knowledge_graph.graphml');
                 }
             } catch (error) {
                 alert('Export failed: ' + error.message);
