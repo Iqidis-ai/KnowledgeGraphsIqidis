@@ -26,19 +26,47 @@ class PostgreSQLGraphExporter:
     def __init__(self, connection_string: str, matter_id: str):
         """
         Initialize PostgreSQL exporter.
-        
+
         Args:
             connection_string: PostgreSQL connection string
             matter_id: UUID of the matter
         """
         self.connection_string = connection_string
         self.matter_id = matter_id
-        self.conn = psycopg2.connect(connection_string)
-        self.conn.autocommit = False
+        self.conn = self._new_connection()
         psycopg2.extras.register_uuid()
 
+    def _new_connection(self):
+        """Create a new PostgreSQL connection with TCP keepalives."""
+        conn = psycopg2.connect(
+            self.connection_string,
+            keepalives=1,
+            keepalives_idle=60,
+            keepalives_interval=15,
+            keepalives_count=3,
+        )
+        conn.autocommit = False
+        return conn
+
+    def _ensure_connection(self):
+        """Reconnect if the connection has been closed or dropped."""
+        try:
+            if self.conn.closed:
+                raise psycopg2.InterfaceError("connection already closed")
+            cur = self.conn.cursor()
+            cur.execute("SELECT 1")
+            cur.close()
+            self.conn.rollback()
+        except (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError):
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+            self.conn = self._new_connection()
+
     def _get_cursor(self):
-        """Get a cursor with dict-like row factory."""
+        """Get a cursor with dict-like row factory, reconnecting if needed."""
+        self._ensure_connection()
         return self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     def close(self):
@@ -175,17 +203,15 @@ class PostgreSQLGraphExporter:
         """Get entities within N hops of a starting entity."""
         cursor = self._get_cursor()
         
-        # Use recursive CTE for graph traversal
+        # Use recursive CTE for graph traversal (LIMIT not allowed in recursive term in PostgreSQL)
         cursor.execute('''
             WITH RECURSIVE neighborhood AS (
                 -- Start node
                 SELECT id, 0 as depth
                 FROM kg_entities
-                WHERE id = %s AND matter_id = %s
-                
+                WHERE id = %s::uuid AND matter_id = %s::uuid
                 UNION
-                
-                -- Connected nodes
+                -- Connected nodes (no LIMIT here - applied in outer query)
                 SELECT DISTINCT
                     CASE 
                         WHEN e.source_entity_id = n.id THEN e.target_entity_id
@@ -194,13 +220,13 @@ class PostgreSQLGraphExporter:
                     n.depth + 1 as depth
                 FROM neighborhood n
                 JOIN kg_edges e ON (e.source_entity_id = n.id OR e.target_entity_id = n.id)
-                WHERE n.depth < %s AND e.matter_id = %s
-                LIMIT %s
+                WHERE n.depth < %s AND e.matter_id = %s::uuid
             )
             SELECT DISTINCT e.id, e.canonical_name, e.type, e.properties, e.confidence
             FROM neighborhood n
             JOIN kg_entities e ON e.id = n.id
             WHERE e.status = 'active'
+            LIMIT %s
         ''', (entity_id, self.matter_id, depth, self.matter_id, max_nodes))
         
         entities = cursor.fetchall()
@@ -219,6 +245,8 @@ class PostgreSQLGraphExporter:
                 'full_name': e['canonical_name'],
                 'type': e['type'],
                 'color': self.TYPE_COLORS.get(e['type'], '#999999'),
+                'confidence': e.get('confidence') or 'extracted',
+                'connections': 1,  # neighborhood view; full degree not computed
                 'properties': e['properties'] if isinstance(e['properties'], dict) else {}
             })
         
@@ -273,6 +301,7 @@ class PostgreSQLGraphExporter:
                 'id': str(row['id']),
                 'name': row['canonical_name'],
                 'type': row['type'],
+                'color': self.TYPE_COLORS.get(row['type'], '#999999'),
                 'properties': row['properties'] if isinstance(row['properties'], dict) else {}
             })
         

@@ -1380,7 +1380,8 @@ SAMPLE ENTITIES:
         )
 
         try:
-            answer_config = genai.GenerationConfig(
+            from google.genai import types
+            answer_config = types.GenerateContentConfig(
                 temperature=0.3,
                 max_output_tokens=2048,
             )
@@ -1721,7 +1722,8 @@ Instructions:
 Generate the narrative timeline:"""
 
         try:
-            narrative_config = genai.GenerationConfig(
+            from google.genai import types
+            narrative_config = types.GenerateContentConfig(
                 temperature=0.3,
                 max_output_tokens=1500,
             )
@@ -1774,7 +1776,8 @@ Suggest follow-up questions that:
 Output only the questions, one per line:"""
 
         try:
-            config = genai.GenerationConfig(
+            from google.genai import types
+            config = types.GenerateContentConfig(
                 temperature=0.5,
                 max_output_tokens=300,
             )

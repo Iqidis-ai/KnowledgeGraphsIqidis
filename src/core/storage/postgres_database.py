@@ -25,11 +25,39 @@ class PostgreSQLDatabase:
         """
         self.connection_string = connection_string
         self.matter_id = matter_id
-        self.conn = psycopg2.connect(connection_string)
-        self.conn.autocommit = False
+        self.conn = self._new_connection()
         psycopg2.extras.register_uuid()
         self._ensure_doc_id_column()
         self._ensure_document_chunks_table()
+        self._ensure_embeddings_table()
+
+    def _new_connection(self):
+        """Create a new PostgreSQL connection with TCP keepalives."""
+        conn = psycopg2.connect(
+            self.connection_string,
+            keepalives=1,
+            keepalives_idle=60,
+            keepalives_interval=15,
+            keepalives_count=3,
+        )
+        conn.autocommit = False
+        return conn
+
+    def _ensure_connection(self):
+        """Reconnect if the connection has been closed or dropped."""
+        try:
+            if self.conn.closed:
+                raise psycopg2.InterfaceError("connection already closed")
+            cur = self.conn.cursor()
+            cur.execute("SELECT 1")
+            cur.close()
+            self.conn.rollback()
+        except (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError):
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+            self.conn = self._new_connection()
 
     def _get_cursor(self):
         """Get a cursor with dict-like row factory.
@@ -37,7 +65,9 @@ class PostgreSQLDatabase:
         Automatically recovers from aborted transaction state (e.g. after a
         constraint violation).  Only rolls back when the connection is in the
         INERROR state — normal in-progress transactions are left untouched.
+        Also reconnects if the connection was dropped by the server.
         """
+        self._ensure_connection()
         if self.conn.get_transaction_status() == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
             try:
                 self.conn.rollback()
@@ -106,6 +136,32 @@ class PostgreSQLDatabase:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc
                 ON kg_document_chunks (kg_doc_id)
+            """)
+            self.conn.commit()
+        except Exception:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+
+    def _ensure_embeddings_table(self):
+        """Create kg_embeddings table if it doesn't exist."""
+        try:
+            cursor = self._get_cursor()
+            cursor.execute("""
+                SELECT 1 FROM information_schema.tables
+                WHERE table_name = 'kg_embeddings'
+            """)
+            if cursor.fetchone() is not None:
+                self.conn.commit()
+                return
+            cursor.execute("""
+                CREATE TABLE kg_embeddings (
+                    entity_id UUID PRIMARY KEY,
+                    vector BYTEA NOT NULL,
+                    dimension INTEGER,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
             """)
             self.conn.commit()
         except Exception:
