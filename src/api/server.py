@@ -323,10 +323,11 @@ def api_create_entity():
         entity_id = str(uuid.uuid4())
 
         cursor.execute('''
-            INSERT INTO kg_entities (id, type, canonical_name, properties, confidence, status, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO kg_entities (id, matter_id, type, canonical_name, properties, confidence, status, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ''', (
             entity_id,
+            _get_matter_id(),
             data['type'],
             data['canonical_name'],
             json.dumps(data.get('properties', {})),
@@ -368,10 +369,11 @@ def api_create_edge():
         edge_id = str(uuid.uuid4())
 
         cursor.execute('''
-            INSERT INTO kg_edges (id, source_entity_id, target_entity_id, relation_type, confidence, properties, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            INSERT INTO kg_edges (id, matter_id, source_entity_id, target_entity_id, relation_type, confidence, properties, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
         ''', (
             edge_id,
+            _get_matter_id(),
             data['source_entity_id'],
             data['target_entity_id'],
             data['relation_type'],
