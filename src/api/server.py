@@ -250,6 +250,7 @@ def api_update_entity(entity_id):
     try:
         exp = get_exporter()
         cursor = exp._get_cursor()
+        matter_id = _get_matter_id()
 
         updates = []
         params = []
@@ -271,10 +272,10 @@ def api_update_entity(entity_id):
             params.append(data['confidence'])
 
         if updates:
-            params.append(entity_id)
+            params.extend([entity_id, matter_id])
             cursor.execute(f'''
                 UPDATE kg_entities SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s
+                WHERE id = %s AND matter_id = %s
             ''', params)
             exp.conn.commit()
 
@@ -291,13 +292,14 @@ def api_delete_entity(entity_id):
     try:
         exp = get_exporter()
         cursor = exp._get_cursor()
+        matter_id = _get_matter_id()
 
-        cursor.execute('DELETE FROM kg_edges WHERE source_entity_id = %s OR target_entity_id = %s',
-                       (entity_id, entity_id))
+        cursor.execute('DELETE FROM kg_edges WHERE matter_id = %s AND (source_entity_id = %s OR target_entity_id = %s)',
+                       (matter_id, entity_id, entity_id))
         cursor.execute(
             'DELETE FROM kg_mentions WHERE entity_id = %s', (entity_id,))
         cursor.execute('DELETE FROM kg_aliases WHERE entity_id = %s', (entity_id,))
-        cursor.execute('DELETE FROM kg_entities WHERE id = %s', (entity_id,))
+        cursor.execute('DELETE FROM kg_entities WHERE id = %s AND matter_id = %s', (entity_id, matter_id))
 
         exp.conn.commit()
 
@@ -397,7 +399,7 @@ def api_delete_edge(edge_id):
         exp = get_exporter()
         cursor = exp._get_cursor()
 
-        cursor.execute('DELETE FROM kg_edges WHERE id = %s', (edge_id,))
+        cursor.execute('DELETE FROM kg_edges WHERE id = %s AND matter_id = %s', (edge_id, _get_matter_id()))
         exp.conn.commit()
 
         return jsonify({'success': True, 'deleted': edge_id})
@@ -610,8 +612,8 @@ JSON response:"""
 
             cursor.execute('''
                 UPDATE kg_entities SET canonical_name = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s
-            ''', (new_name, row['id']))
+                WHERE id = %s AND matter_id = %s
+            ''', (new_name, row['id'], matter_id))
             exp.conn.commit()
 
             return jsonify({
@@ -660,13 +662,13 @@ JSON response:"""
                 return jsonify({'success': False, 'error': f'Entity "{entity_name}" not found'})
 
             entity_id = row['id']
-            cursor.execute('DELETE FROM kg_edges WHERE source_entity_id = %s OR target_entity_id = %s',
-                           (entity_id, entity_id))
+            cursor.execute('DELETE FROM kg_edges WHERE matter_id = %s AND (source_entity_id = %s OR target_entity_id = %s)',
+                           (matter_id, entity_id, entity_id))
             cursor.execute(
                 'DELETE FROM kg_mentions WHERE entity_id = %s', (entity_id,))
             cursor.execute(
                 'DELETE FROM kg_aliases WHERE entity_id = %s', (entity_id,))
-            cursor.execute('DELETE FROM kg_entities WHERE id = %s', (entity_id,))
+            cursor.execute('DELETE FROM kg_entities WHERE id = %s AND matter_id = %s', (entity_id, matter_id))
             exp.conn.commit()
 
             return jsonify({
@@ -737,8 +739,8 @@ JSON response:"""
             if not row:
                 return jsonify({'success': False, 'error': f'Entity "{entity_name}" not found'})
 
-            cursor.execute('UPDATE kg_entities SET type = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s',
-                           (new_type, row['id']))
+            cursor.execute('UPDATE kg_entities SET type = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s AND matter_id = %s',
+                           (new_type, row['id'], matter_id))
             exp.conn.commit()
 
             return jsonify({
