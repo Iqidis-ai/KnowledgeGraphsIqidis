@@ -30,59 +30,79 @@ from ..visualization.postgres_graph_exporter import PostgreSQLGraphExporter
 api = Blueprint('api', __name__, url_prefix='/api')
 
 
-# Global instances - initialized per matter
-_kg: Optional[KnowledgeGraph] = None
-_exporter: Optional[PostgreSQLGraphExporter] = None
-_matter_name: str = "default"
+# Per-matter instance cache — avoids global singleton swapping that caused
+# data spillover when multiple matters were accessed concurrently.
+_instances: Dict[str, Dict] = {}
 _nl_edit_client = None
 _nl_edit_model = None
 
 
+def _get_or_create_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
+                          db_url: Optional[str] = None) -> Dict:
+    """Get or create KG + exporter instances for a specific matter.
+
+    Instances are cached per matter_id so concurrent requests for different
+    matters never clobber each other.
+    """
+    global _nl_edit_client, _nl_edit_model
+    if matter_name in _instances:
+        return _instances[matter_name]
+
+    resolved_url = db_url or get_postgres_url()
+    kg = KnowledgeGraph(matter_name, api_key=api_key, db_url=resolved_url)
+    exporter = PostgreSQLGraphExporter(resolved_url, matter_name)
+
+    # Configure NL edit model (shared across matters)
+    if _nl_edit_client is None:
+        _nl_edit_client = genai.Client(api_key=api_key)
+        _nl_edit_model = 'gemini-2.0-flash'
+
+    entry = {"kg": kg, "exporter": exporter, "matter_name": matter_name}
+    _instances[matter_name] = entry
+    return entry
+
+
 def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
                 db_url: Optional[str] = None):
-    """Initialize the API for a specific matter.
-
-    Args:
-        matter_name: Matter ID (UUID)
-        api_key: Gemini API key
-        db_url: Optional explicit PostgreSQL URL (overrides env-based default)
-    """
-    global _kg, _exporter, _matter_name, _nl_edit_client, _nl_edit_model
-    _matter_name = matter_name
-    resolved_url = db_url or get_postgres_url()
-    _kg = KnowledgeGraph(matter_name, api_key=api_key, db_url=resolved_url)
-
-    # Initialize PostgreSQL exporter
-    _exporter = PostgreSQLGraphExporter(resolved_url, matter_name)
-
-    # Configure NL edit model
-    _nl_edit_client = genai.Client(api_key=api_key)
-    _nl_edit_model = 'gemini-2.0-flash'
+    """Initialize the API for a specific matter (backwards-compatible wrapper)."""
+    _get_or_create_matter(matter_name, api_key, db_url)
 
 
 def _ensure_matter(matter_id: Optional[str] = None):
     """Ensure API is initialized for the given matter_id. Uses query param, X-Matter-Id header, or passed arg."""
     mid = matter_id or request.args.get(
         'matter_id') or request.headers.get('X-Matter-Id')
-    if mid and mid != _matter_name:
-        init_matter(mid)
-    elif _kg is None:
+    if not mid:
         from flask import abort
         abort(400, description='matter_id required (query param or X-Matter-Id header)')
+    _get_or_create_matter(mid)
+
+
+def _get_matter_id() -> str:
+    """Get the current matter_id from the request context."""
+    mid = request.args.get('matter_id') or request.headers.get('X-Matter-Id')
+    if not mid:
+        from flask import abort
+        abort(400, description='matter_id required')
+    return mid
 
 
 def get_kg() -> KnowledgeGraph:
-    """Get the KnowledgeGraph instance."""
-    if _kg is None:
-        raise RuntimeError("API not initialized. Call init_matter() first.")
-    return _kg
+    """Get the KnowledgeGraph instance for the current request's matter."""
+    mid = _get_matter_id()
+    entry = _instances.get(mid)
+    if entry is None:
+        raise RuntimeError("API not initialized. Call _ensure_matter() first.")
+    return entry["kg"]
 
 
 def get_exporter() -> PostgreSQLGraphExporter:
-    """Get the PostgreSQLGraphExporter instance."""
-    if _exporter is None:
-        raise RuntimeError("API not initialized. Call init_matter() first.")
-    return _exporter
+    """Get the PostgreSQLGraphExporter instance for the current request's matter."""
+    mid = _get_matter_id()
+    entry = _instances.get(mid)
+    if entry is None:
+        raise RuntimeError("API not initialized. Call _ensure_matter() first.")
+    return entry["exporter"]
 
 
 # ==================== Iqidis Integration (documents from Iqidis, KG stored locally) ====================
@@ -1032,7 +1052,7 @@ def api_export():
         if format_type == 'json':
             # Full JSON export
             return jsonify({
-                'matter': _matter_name,
+                'matter': _get_matter_id(),
                 'entities': entities,
                 'edges': edges,
                 'stats': {
@@ -1072,7 +1092,7 @@ def api_export():
                 zip_buffer.getvalue(),
                 mimetype='application/zip',
                 headers={
-                    'Content-Disposition': f'attachment; filename={_matter_name}_export.zip'}
+                    'Content-Disposition': f'attachment; filename={_get_matter_id()}_export.zip'}
             )
 
         elif format_type == 'graphml':
@@ -1116,7 +1136,7 @@ def api_export():
                 '\n'.join(graphml),
                 mimetype='application/xml',
                 headers={
-                    'Content-Disposition': f'attachment; filename={_matter_name}.graphml'}
+                    'Content-Disposition': f'attachment; filename={_get_matter_id()}.graphml'}
             )
 
         else:
