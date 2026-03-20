@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Knowledge Graph - CITIOM v Gulfstream</title>
+    <title>Knowledge Graph</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         * {
@@ -806,7 +806,7 @@
     <div id="app">
         <div id="sidebar">
             <div class="sidebar-section">
-                <h1>Knowledge Graph <span>CITIOM v Gulfstream</span></h1>
+                <h1>Knowledge Graph <span id="matter-label"></span></h1>
             </div>
 
             <div class="sidebar-section">
@@ -817,12 +817,11 @@
                         <span>Query Graph</span>
                     </button>
                     <div class="sample-queries">
-                        <span class="sample-query" data-query="Who are the main parties in this case?">Main
-                            parties</span>
+                        <span class="sample-query" data-query="Who are the main parties in this case?">Main parties</span>
                         <span class="sample-query" data-query="What is the dispute about?">About dispute</span>
                         <span class="sample-query" data-query="What are the key dates?">Key dates</span>
-                        <span class="sample-query" data-query="Tell me about Gulfstream">About Gulfstream</span>
                         <span class="sample-query" data-query="What obligations are mentioned?">Obligations</span>
+                        <span class="sample-query" data-query="Summarize the key terms">Key terms</span>
                     </div>
                 </div>
                 <div id="query-answer">
@@ -877,7 +876,7 @@
 
                 <div id="nl-edit-container">
                     <h2>Natural Language Edit</h2>
-                    <input type="text" id="nl-edit-input" placeholder="e.g. rename CITIOM to Channel IT...">
+                    <input type="text" id="nl-edit-input" placeholder="e.g. rename entity X to Y...">
                     <button id="nl-edit-btn">Execute Command</button>
                     <div class="nl-edit-examples">
                         <span class="nl-edit-example" data-cmd="rename">rename X to Y</span>
@@ -1047,6 +1046,14 @@
 
                 // Update stats
                 document.getElementById('stat-docs').textContent = fullGraphData.stats.total_documents || '-';
+
+                // Set matter label from URL param (the parent app provides the display name)
+                const matterLabel = document.getElementById('matter-label');
+                if (matterLabel) {
+                    const params = new URLSearchParams(window.location.search);
+                    const matterName = params.get('matter_name');
+                    matterLabel.textContent = matterName || '';
+                }
 
                 // Create type filters
                 createTypeFilters();
