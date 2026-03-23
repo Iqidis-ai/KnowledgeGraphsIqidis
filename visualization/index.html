@@ -1348,102 +1348,7 @@
 
   <body>
     <div id="app">
-<<<<<<< HEAD
-<<<<<<< HEAD
       <div id="sidebar">
-        <div class="sidebar-section">
-          <h1><span>CITIOM v Gulfstream</span></h1>
-=======
-        <div id="sidebar">
-            <div class="sidebar-section">
-                <h1>Knowledge Graph <span id="matter-label"></span></h1>
-            </div>
-
-            <div class="sidebar-section">
-                <h2>Ask a Question</h2>
-                <div id="query-container">
-                    <textarea id="query-input" placeholder="Ask anything about the case..."></textarea>
-                    <button id="query-btn">
-                        <span>Query Graph</span>
-                    </button>
-                    <div class="sample-queries">
-                        <span class="sample-query" data-query="Who are the main parties in this case?">Main parties</span>
-                        <span class="sample-query" data-query="What is the dispute about?">About dispute</span>
-                        <span class="sample-query" data-query="What are the key dates?">Key dates</span>
-                        <span class="sample-query" data-query="What obligations are mentioned?">Obligations</span>
-                        <span class="sample-query" data-query="Summarize the key terms">Key terms</span>
-                    </div>
-                </div>
-                <div id="query-answer">
-                    <h3>Answer</h3>
-                    <div id="answer-text"></div>
-                    <div id="query-stats"></div>
-                </div>
-            </div>
-
-            <div class="sidebar-scroll">
-                <h2>Search Entities</h2>
-                <div id="search-container">
-                    <div class="search-input-row">
-                        <input type="text" id="search" placeholder="Search by name..." autocomplete="off">
-                        <button type="button" id="search-btn" title="Search entities" aria-label="Search entities">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                        </button>
-                    </div>
-                    <div id="search-results"></div>
-                </div>
-
-                <h2>Statistics</h2>
-                <div id="stats">
-                    <div class="stat-row">
-                        <span class="stat-label">Visible Nodes</span>
-                        <span class="stat-value" id="stat-nodes">-</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Visible Links</span>
-                        <span class="stat-value" id="stat-links">-</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Documents</span>
-                        <span class="stat-value" id="stat-docs">-</span>
-                    </div>
-                </div>
-
-                <h2>Filter by Type</h2>
-                <div id="type-filters" class="filter-group"></div>
-
-                <div id="entity-details">
-                    <h3 id="entity-name"></h3>
-                    <span class="type-badge" id="entity-type"></span>
-                    <h2>Connections</h2>
-                    <div id="entity-connections"></div>
-                </div>
-
-                <div id="facts-panel">
-                    <h2>Related Facts</h2>
-                    <div id="facts-list"></div>
-                </div>
-
-                <div id="nl-edit-container">
-                    <h2>Natural Language Edit</h2>
-                    <input type="text" id="nl-edit-input" placeholder="e.g. rename entity X to Y...">
-                    <button id="nl-edit-btn">Execute Command</button>
-                    <div class="nl-edit-examples">
-                        <span class="nl-edit-example" data-cmd="rename">rename X to Y</span>
-                        <span class="nl-edit-example" data-cmd="merge">merge X with Y</span>
-                        <span class="nl-edit-example" data-cmd="delete">delete X</span>
-                        <span class="nl-edit-example" data-cmd="link">link X to Y</span>
-                        <span class="nl-edit-example" data-cmd="create">create Person X</span>
-                    </div>
-                    <div id="nl-edit-result"></div>
-                </div>
-            </div>
->>>>>>> cd9c319cb86bc9485b011109ba0fbafce5dce91e
-        </div>
-
-=======
-      <div id="sidebar">
->>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
         <div class="sidebar-content">
           <div
             class="sidebar-section"
@@ -1995,7 +1900,6 @@
       // Configuration
       const API_BASE = ""; // Same origin
 
-<<<<<<< HEAD
       // Iqidis: inject matter_id from URL into all API requests
       (function () {
         const params = new URLSearchParams(window.location.search);
@@ -2011,64 +1915,6 @@
               encodeURIComponent(matterId);
           }
           if (opts && opts.body && typeof opts.body === "string") {
-=======
-        // Iqidis: inject matter_id from URL into all API requests
-        (function () {
-            const params = new URLSearchParams(window.location.search);
-            const matterId = params.get('matter_id');
-            if (!matterId) return;
-            const origFetch = window.fetch;
-            window.fetch = function (url, opts) {
-                if (typeof url === 'string' && url.includes('/api/')) {
-                    url = url + (url.includes('?') ? '&' : '?') + 'matter_id=' + encodeURIComponent(matterId);
-                }
-                if (opts && opts.body && typeof opts.body === 'string') {
-                    try {
-                        const j = JSON.parse(opts.body);
-                        if (!j.matter_id) j.matter_id = matterId;
-                        opts = { ...opts, body: JSON.stringify(j) };
-                    } catch (_) { }
-                }
-                return origFetch.call(this, url, opts);
-            };
-        })();
-
-        // State
-        let fullGraphData = null;
-        let queryGraphData = null;
-        let currentView = 'full';
-        let simulation = null;
-        let svg, g, link, node;
-        let activeFilters = new Set();
-        let showFacts = false;
-        let factsLoaded = false;
-        let zoom;
-
-        // Type colors
-        const TYPE_COLORS = {
-            'Organization': '#7c3aed',
-            'Person': '#ef4444',
-            'Document': '#f59e0b',
-            'Date': '#10b981',
-            'Money': '#f97316',
-            'Location': '#06b6d4',
-            'Reference': '#8b5cf6',
-            'Fact': '#6b7280'
-        };
-
-        // Confidence ring colors
-        const CONFIDENCE_COLORS = {
-            'confirmed': '#34a853',  // Green
-            'extracted': '#fbbc04',  // Yellow
-            'inferred': '#ea4335'    // Red
-        };
-
-        // Current layout
-        let currentLayout = 'force';
-
-        // Initialize
-        async function init() {
->>>>>>> cd9c319cb86bc9485b011109ba0fbafce5dce91e
             try {
               const j = JSON.parse(opts.body);
               if (!j.matter_id) j.matter_id = matterId;
@@ -2087,13 +1933,10 @@
       let svg, g, link, node;
       let activeFilters = new Set();
       let showFacts = false;
+      let factsLoaded = false;
       let editMode = false;
       let zoom;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
       // Type colors
       const TYPE_COLORS = {
         Organization: "#7c3aed",
@@ -2105,21 +1948,6 @@
         Reference: "#8b5cf6",
         Fact: "#6b7280",
       };
-<<<<<<< HEAD
-=======
-                // Set matter label from URL param (the parent app provides the display name)
-                const matterLabel = document.getElementById('matter-label');
-                if (matterLabel) {
-                    const params = new URLSearchParams(window.location.search);
-                    const matterName = params.get('matter_name');
-                    matterLabel.textContent = matterName || '';
-                }
-
-                // Create type filters
-                createTypeFilters();
->>>>>>> cd9c319cb86bc9485b011109ba0fbafce5dce91e
-=======
->>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
 
       // Confidence ring colors
       const CONFIDENCE_COLORS = {
@@ -2209,7 +2037,6 @@
             updateGraph();
           });
 
-<<<<<<< HEAD
           container.appendChild(div);
         });
       }
@@ -2506,27 +2333,16 @@
           container.innerHTML += `<div class="connection-item" style="color: #9ca3af;">... and ${connections.length - 15} more</div>`;
         }
 
-        // Add action buttons
+        // Add action buttons (remove previous ones first to avoid duplication)
+        const existingActions = details.querySelector(".entity-actions");
+        if (existingActions) existingActions.remove();
+
         const actionsDiv = document.createElement("div");
+        actionsDiv.className = "entity-actions";
         actionsDiv.style.cssText = "margin-top: 15px; display: flex; gap: 8px;";
         actionsDiv.innerHTML = `
-<<<<<<< HEAD
-=======
-            // Add action buttons (remove previous ones first to avoid duplication)
-            const existingActions = details.querySelector('.entity-actions');
-            if (existingActions) existingActions.remove();
-
-            const actionsDiv = document.createElement('div');
-            actionsDiv.className = 'entity-actions';
-            actionsDiv.style.cssText = 'margin-top: 15px; display: flex; gap: 8px;';
-            actionsDiv.innerHTML = `
->>>>>>> cd9c319cb86bc9485b011109ba0fbafce5dce91e
-                <button class="btn btn-secondary" style="flex:1; padding: 8px; font-size: 12px;" onclick="showEditModal(window._selectedEntity)">Edit</button>
-                <button class="btn btn-secondary" style="flex:1; padding: 8px; font-size: 12px;" onclick="showCreateEdgeModal(window._selectedEntity)">+ Link</button>
-=======
                 <button class="btn outlineBtn" style="flex:1; padding: 8px; font-size: 12px;" onclick="showEditModal(window._selectedEntity)">Edit</button>
                 <button class="btn whiteBtn" style="flex:1; padding: 8px; font-size: 12px;" onclick="showCreateEdgeModal(window._selectedEntity)">+ Link</button>
->>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
             `;
         details.appendChild(actionsDiv);
 
@@ -2621,7 +2437,6 @@
           });
         }
 
-<<<<<<< HEAD
         /** Only runs on search icon click: one API hit. If a suggestion was already chosen, load that entity's graph. */
         async function runSearch() {
           if (lastSelectedEntityId) {
@@ -2639,334 +2454,6 @@
           try {
             const response = await fetch(
               `${API_BASE}/api/search?q=${encodeURIComponent(query)}`,
-=======
-        function setupControls() {
-            // View toggle
-            document.querySelectorAll('.view-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    currentView = btn.dataset.view;
-                    updateGraph();
-                });
-            });
-
-            // Reset
-            document.getElementById('btn-reset').addEventListener('click', () => {
-                svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity);
-            });
-
-            // Center
-            document.getElementById('btn-center').addEventListener('click', centerGraph);
-
-            // Facts toggle
-            const factsBtn = document.getElementById('btn-facts');
-            factsBtn.addEventListener('click', async () => {
-                showFacts = !showFacts;
-                factsBtn.classList.toggle('active', showFacts);
-
-                if (showFacts && !factsLoaded) {
-                    // Facts were excluded from initial load — fetch with facts included
-                    factsBtn.disabled = true;
-                    factsBtn.textContent = 'Loading…';
-                    try {
-                        const res = await fetch(`${API_BASE}/api/graph?include_facts=true&limit=5000`);
-                        const dataWithFacts = await res.json();
-                        // Merge fact nodes and their edges into fullGraphData
-                        const existingIds = new Set(fullGraphData.nodes.map(n => n.id));
-                        const newNodes = dataWithFacts.nodes.filter(n => !existingIds.has(n.id));
-                        fullGraphData.nodes.push(...newNodes);
-                        const existingEdgeKeys = new Set(fullGraphData.links.map(l => `${l.source.id ?? l.source}-${l.target.id ?? l.target}`));
-                        const newLinks = dataWithFacts.links.filter(l => {
-                            const key = `${l.source.id ?? l.source}-${l.target.id ?? l.target}`;
-                            return !existingEdgeKeys.has(key);
-                        });
-                        fullGraphData.links.push(...newLinks);
-                        factsLoaded = true;
-                        // Rebuild type filters to include Fact
-                        createTypeFilters();
-                    } catch (e) {
-                        console.error('Failed to load facts:', e);
-                    } finally {
-                        factsBtn.disabled = false;
-                        factsBtn.textContent = showFacts ? 'Hide Facts' : 'Show Facts';
-                    }
-                }
-
-                if (showFacts) {
-                    activeFilters.add('Fact');
-                    factsBtn.textContent = 'Hide Facts';
-                } else {
-                    activeFilters.delete('Fact');
-                    factsBtn.textContent = 'Show Facts';
-                }
-
-                // Update checkbox
-                const checkbox = document.getElementById('filter-Fact');
-                if (checkbox) checkbox.checked = showFacts;
-
-                updateGraph();
-            });
-
-            // Edit mode toggle
-            const editBtn = document.getElementById('btn-edit');
-            editBtn.addEventListener('click', () => {
-                editMode = !editMode;
-                editBtn.classList.toggle('edit-mode', editMode);
-                editBtn.textContent = editMode ? 'Exit Edit' : 'Edit Mode';
-            });
-
-            // Add entity button
-            document.getElementById('btn-add-entity').addEventListener('click', showCreateEntityModal);
-
-            // Close modal on outside click
-            document.getElementById('edit-modal').addEventListener('click', (e) => {
-                if (e.target.id === 'edit-modal') {
-                    closeModal();
-                }
-            });
-
-            // Escape key to close modal
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') {
-                    closeModal();
-                }
-            });
-
-            // Layout selector
-            document.getElementById('layout-select').addEventListener('change', (e) => {
-                currentLayout = e.target.value;
-                applyLayout();
-            });
-
-            // NL Edit functionality
-            setupNLEdit();
-
-            // Duplicates button
-            document.getElementById('btn-duplicates').addEventListener('click', showDuplicatesModal);
-
-            // Timeline button
-            document.getElementById('btn-timeline').addEventListener('click', showTimelineModal);
-
-            // Clusters button
-            document.getElementById('btn-clusters').addEventListener('click', showClustersModal);
-
-            // Analytics button
-            document.getElementById('btn-analytics').addEventListener('click', showAnalyticsModal);
-
-            // Find Path button
-            document.getElementById('btn-path').addEventListener('click', showPathModal);
-
-            // Export setup
-            setupExport();
-        }
-
-        // ========== NL EDIT FUNCTIONALITY ==========
-        function setupNLEdit() {
-            const input = document.getElementById('nl-edit-input');
-            const btn = document.getElementById('nl-edit-btn');
-            const resultDiv = document.getElementById('nl-edit-result');
-
-            // Example click handlers
-            document.querySelectorAll('.nl-edit-example').forEach(ex => {
-                ex.addEventListener('click', () => {
-                    const cmd = ex.dataset.cmd;
-                    const templates = {
-                        'rename': 'rename [entity name] to [new name]',
-                        'merge': 'merge [entity1] with [entity2]',
-                        'delete': 'delete [entity name]',
-                        'link': 'link [entity1] to [entity2] with [relationship]',
-                        'create': 'create [type] named [name]'
-                    };
-                    input.value = templates[cmd] || '';
-                    input.focus();
-                    input.select();
-                });
-            });
-
-            btn.addEventListener('click', async () => {
-                const command = input.value.trim();
-                if (!command) return;
-
-                btn.disabled = true;
-                btn.textContent = 'Processing...';
-                resultDiv.className = '';
-                resultDiv.style.display = 'none';
-
-                try {
-                    const response = await fetch(`${API_BASE}/api/nl-edit`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ command })
-                    });
-
-                    const result = await response.json();
-
-                    if (result.success) {
-                        resultDiv.textContent = result.message;
-                        resultDiv.className = 'success';
-                        input.value = '';
-
-                        // Reload graph after 1 second
-                        setTimeout(() => {
-                            location.reload();
-                        }, 1500);
-                    } else {
-                        resultDiv.textContent = result.error || 'Command failed';
-                        resultDiv.className = 'error';
-                    }
-                } catch (err) {
-                    resultDiv.textContent = 'Error: ' + err.message;
-                    resultDiv.className = 'error';
-                } finally {
-                    btn.disabled = false;
-                    btn.textContent = 'Execute Command';
-                }
-            });
-
-            // Enter key
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    btn.click();
-                }
-            });
-        }
-
-        // ========== LAYOUT FUNCTIONS ==========
-        function applyLayout() {
-            const data = getCurrentData();
-            if (!data) return;
-
-            const container = document.getElementById('graph-container');
-            const width = container.clientWidth;
-            const height = container.clientHeight;
-            const centerX = width / 2;
-            const centerY = height / 2;
-
-            // Get filtered nodes
-            const filteredNodes = data.nodes.filter(n => activeFilters.has(n.type));
-
-            switch (currentLayout) {
-                case 'cluster':
-                    applyClusterLayout(filteredNodes, centerX, centerY);
-                    break;
-                case 'radial':
-                    applyRadialLayout(filteredNodes, centerX, centerY);
-                    break;
-                case 'hierarchical':
-                    applyHierarchicalLayout(filteredNodes, centerX, centerY, width, height);
-                    break;
-                case 'force':
-                default:
-                    // Reset to force simulation
-                    filteredNodes.forEach(n => {
-                        n.fx = null;
-                        n.fy = null;
-                    });
-                    simulation.alpha(1).restart();
-                    break;
-            }
-        }
-
-        function applyClusterLayout(nodes, centerX, centerY) {
-            // Group by type
-            const typeGroups = {};
-            nodes.forEach(n => {
-                if (!typeGroups[n.type]) typeGroups[n.type] = [];
-                typeGroups[n.type].push(n);
-            });
-
-            const types = Object.keys(typeGroups);
-            const angleStep = (2 * Math.PI) / types.length;
-            const clusterRadius = Math.min(centerX, centerY) * 0.6;
-
-            types.forEach((type, i) => {
-                const angle = i * angleStep - Math.PI / 2;
-                const clusterCenterX = centerX + Math.cos(angle) * clusterRadius;
-                const clusterCenterY = centerY + Math.sin(angle) * clusterRadius;
-
-                const groupNodes = typeGroups[type];
-                const nodeRadius = Math.min(150, 20 * Math.sqrt(groupNodes.length));
-
-                groupNodes.forEach((n, j) => {
-                    const nodeAngle = (j / groupNodes.length) * 2 * Math.PI;
-                    const r = nodeRadius * (0.3 + 0.7 * Math.random());
-                    n.fx = clusterCenterX + Math.cos(nodeAngle) * r;
-                    n.fy = clusterCenterY + Math.sin(nodeAngle) * r;
-                });
-            });
-
-            simulation.alpha(0.3).restart();
-            setTimeout(() => centerGraph(), 100);
-        }
-
-        function applyRadialLayout(nodes, centerX, centerY) {
-            // Sort by connections (most connected in center)
-            const sorted = [...nodes].sort((a, b) => (b.connections || 0) - (a.connections || 0));
-
-            const rings = 5;
-            const nodesPerRing = Math.ceil(sorted.length / rings);
-
-            sorted.forEach((n, i) => {
-                const ring = Math.floor(i / nodesPerRing);
-                const posInRing = i % nodesPerRing;
-                const ringSize = Math.min(nodesPerRing, sorted.length - ring * nodesPerRing);
-
-                const radius = 50 + ring * 80;
-                const angle = (posInRing / ringSize) * 2 * Math.PI - Math.PI / 2;
-
-                n.fx = centerX + Math.cos(angle) * radius;
-                n.fy = centerY + Math.sin(angle) * radius;
-            });
-
-            simulation.alpha(0.3).restart();
-            setTimeout(() => centerGraph(), 100);
-        }
-
-        function applyHierarchicalLayout(nodes, centerX, centerY, width, height) {
-            // Group by type with hierarchy: Organization > Person > Document > others
-            const typeOrder = ['Organization', 'Person', 'Document', 'Date', 'Money', 'Location', 'Reference', 'Fact'];
-            const typeGroups = {};
-
-            nodes.forEach(n => {
-                if (!typeGroups[n.type]) typeGroups[n.type] = [];
-                typeGroups[n.type].push(n);
-            });
-
-            const sortedTypes = typeOrder.filter(t => typeGroups[t] && typeGroups[t].length > 0);
-            const levelHeight = height / (sortedTypes.length + 1);
-
-            sortedTypes.forEach((type, level) => {
-                const groupNodes = typeGroups[type];
-                const y = (level + 1) * levelHeight;
-                const spacing = width / (groupNodes.length + 1);
-
-                groupNodes.forEach((n, i) => {
-                    n.fx = (i + 1) * spacing;
-                    n.fy = y + (Math.random() - 0.5) * 30;  // Small jitter
-                });
-            });
-
-            simulation.alpha(0.3).restart();
-            setTimeout(() => centerGraph(), 100);
-        }
-
-        function centerGraph() {
-            const bounds = g.node().getBBox();
-            if (bounds.width === 0) return;
-
-            const container = document.getElementById('graph-container');
-            const fullWidth = container.clientWidth;
-            const fullHeight = container.clientHeight;
-            const midX = bounds.x + bounds.width / 2;
-            const midY = bounds.y + bounds.height / 2;
-            const scale = 0.8 / Math.max(bounds.width / fullWidth, bounds.height / fullHeight);
-            const translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY];
-
-            svg.transition().duration(750).call(
-                zoom.transform,
-                d3.zoomIdentity.translate(translate[0], translate[1]).scale(Math.min(scale, 1.5))
->>>>>>> cd9c319cb86bc9485b011109ba0fbafce5dce91e
             );
             const matches = await response.json();
             if (matches.length === 0) {
@@ -3205,17 +2692,51 @@
 
         // Facts toggle
         const factsBtn = document.getElementById("btn-facts");
-        factsBtn.addEventListener("click", () => {
+        factsBtn.addEventListener("click", async () => {
           showFacts = !showFacts;
           factsBtn.classList.toggle("active", showFacts);
 
-          if (showFacts) {
-            activeFilters.add("Fact");
-          } else {
-            activeFilters.delete("Fact");
+          if (showFacts && !factsLoaded) {
+            factsBtn.disabled = true;
+            factsBtn.textContent = "Loading…";
+            try {
+              const res = await fetch(
+                `${API_BASE}/api/graph?include_facts=true&limit=5000`,
+              );
+              const dataWithFacts = await res.json();
+              const existingIds = new Set(fullGraphData.nodes.map((n) => n.id));
+              const newNodes = dataWithFacts.nodes.filter(
+                (n) => !existingIds.has(n.id),
+              );
+              fullGraphData.nodes.push(...newNodes);
+              const existingEdgeKeys = new Set(
+                fullGraphData.links.map(
+                  (l) => `${l.source.id ?? l.source}-${l.target.id ?? l.target}`,
+                ),
+              );
+              const newLinks = dataWithFacts.links.filter((l) => {
+                const key = `${l.source.id ?? l.source}-${l.target.id ?? l.target}`;
+                return !existingEdgeKeys.has(key);
+              });
+              fullGraphData.links.push(...newLinks);
+              factsLoaded = true;
+              createTypeFilters();
+            } catch (e) {
+              console.error("Failed to load facts:", e);
+            } finally {
+              factsBtn.disabled = false;
+              factsBtn.textContent = showFacts ? "Hide Facts" : "Show Facts";
+            }
           }
 
-          // Update checkbox
+          if (showFacts) {
+            activeFilters.add("Fact");
+            factsBtn.textContent = "Hide Facts";
+          } else {
+            activeFilters.delete("Fact");
+            factsBtn.textContent = "Show Facts";
+          }
+
           const checkbox = document.getElementById("filter-Fact");
           if (checkbox) checkbox.checked = showFacts;
 
@@ -4398,31 +3919,6 @@
         });
       }
 
-<<<<<<< HEAD
-      async function exportGraph(format) {
-        try {
-          const url = `${API_BASE}/api/export?format=${format}&include_facts=true`;
-
-          if (format === "json") {
-            // For JSON, fetch and download
-            const response = await fetch(url);
-            const data = await response.json();
-            const blob = new Blob([JSON.stringify(data, null, 2)], {
-              type: "application/json",
-            });
-            downloadBlob(blob, "knowledge_graph.json");
-          } else {
-            // For CSV and GraphML, trigger direct download
-            window.location.href = url;
-          }
-        } catch (error) {
-          alert("Export failed: " + error.message);
-        }
-      }
-
-<<<<<<< HEAD
-=======
->>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
       function downloadBlob(blob, filename) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -4444,39 +3940,6 @@
             throw new Error(errText || `Export failed (${response.status})`);
           }
 
-<<<<<<< HEAD
-      function handleClick(event, d) {
-        if (editMode) {
-          showEditModal(d);
-        } else {
-          showEntityDetails(d);
-=======
-        async function exportGraph(format) {
-            try {
-                const url = `${API_BASE}/api/export?format=${format}&include_facts=true`;
-                // Always use fetch so the matter_id interceptor injects the param
-                const response = await fetch(url);
-                if (!response.ok) {
-                    const errText = await response.text();
-                    throw new Error(errText || `Export failed (${response.status})`);
-                }
-
-                if (format === 'json') {
-                    const data = await response.json();
-                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                    downloadBlob(blob, 'knowledge_graph.json');
-                } else if (format === 'csv') {
-                    const blob = await response.blob();
-                    downloadBlob(blob, 'knowledge_graph_export.zip');
-                } else if (format === 'graphml') {
-                    const blob = await response.blob();
-                    downloadBlob(blob, 'knowledge_graph.graphml');
-                }
-            } catch (error) {
-                alert('Export failed: ' + error.message);
-            }
->>>>>>> cd9c319cb86bc9485b011109ba0fbafce5dce91e
-=======
           if (format === "json") {
             const data = await response.json();
             const blob = new Blob([JSON.stringify(data, null, 2)], {
@@ -4492,7 +3955,6 @@
           }
         } catch (error) {
           alert("Export failed: " + error.message);
->>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
         }
       }
 
