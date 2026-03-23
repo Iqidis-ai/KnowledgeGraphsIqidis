@@ -61,7 +61,7 @@
         display: flex;
         flex-direction: column;
         border-right: 1px solid #e5e7eb;
-        border-top-right-radius: 16px;
+        /* border-top-right-radius: 16px; */
       }
 
       .sidebar-section {
@@ -70,7 +70,7 @@
       }
 
       #sidebar .sidebar-section:first-child {
-        border-top-right-radius: 16px;
+        padding-left: 20px;
       }
 
       .sidebar-scroll {
@@ -684,9 +684,21 @@
       }
 
       .control-btn.active {
-        background: #7c3aed;
+        background: transparent;
         border-color: #7c3aed;
-        color: white;
+        color: #7c3aed;
+      }
+
+      .control-btn.active:hover {
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
+      }
+
+      .control-btn.active:hover:not(:disabled) {
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
       }
 
       .outlineBtn {
@@ -706,22 +718,56 @@
       }
 
       .control-btn.outlineBtn.active:hover {
-        background: #7c3aed;
+        background: transparent;
         border-color: #7c3aed;
-        color: #fff;
+        color: #7c3aed;
       }
 
       .control-btn.outlineBtn.edit-mode:hover {
-        background: #ff6d01;
-        border-color: #ff6d01;
-        color: #fff;
+        background:transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
+      }
+
+      .control-btn.outlineBtn.edit-mode.active:hover {
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
+      }
+
+      .control-btn.outlineBtn.edit-mode.active:hover:not(:disabled) {
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
+      }
+
+      /* Top toolbar: menu (mobile) + view mode toggle */
+      .graph-toolbar {
+        position: absolute;
+        top: 12px;
+        left: 20px;
+        z-index: 100;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        gap: 8px;
+        max-width: calc(100% - 40px);
+      }
+
+      .sidebar-menu-btn {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 10px;
+        min-width: 40px;
+      }
+
+      .sidebar-menu-btn svg {
+        flex-shrink: 0;
       }
 
       /* View Mode Toggle */
       #view-toggle {
-        position: absolute;
-        top: 20px;
-        left: 20px;
         display: flex;
         background: #ffffff;
         border-radius: 8px;
@@ -729,11 +775,86 @@
         border: 1px solid #e5e7eb;
       }
 
+      #sidebar-backdrop {
+        display: none;
+      }
+
+      @media (max-width: 1023px) {
+        .sidebar-menu-btn {
+          display: inline-flex;
+        }
+
+        #sidebar-backdrop {
+          display: block;
+          position: fixed;
+          inset: 0;
+          z-index: 2090;
+          background: rgba(0, 0, 0, 0.4);
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          transition:
+            opacity 0.2s ease,
+            visibility 0.2s ease;
+        }
+
+        #app.sidebar-drawer-open #sidebar-backdrop {
+          opacity: 1;
+          visibility: visible;
+          pointer-events: auto;
+        }
+
+        #sidebar {
+          position: fixed;
+          left: 0;
+          top: 0;
+          height: 100%;
+          max-height: 100dvh;
+          width: min(330px, 92vw);
+          z-index: 2100;
+          transform: translateX(-100%);
+          transition: transform 0.25s ease;
+          /* box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12); */
+          border-right: 1px solid #e5e7eb;
+          padding-top: env(safe-area-inset-top, 0);
+        }
+
+        #app.sidebar-drawer-open #sidebar {
+          transform: translateX(0);
+        }
+
+        #sidebar .sidebar-content {
+          flex: 1;
+          min-height: 0;
+        }
+
+        #controls {
+          left: 20px;
+          right: 20px;
+          width: auto;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          overflow-y: hidden;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        #controls .control-btn {
+          flex-shrink: 0;
+          white-space: nowrap;
+        }
+      }
+
+      @media (max-width: 576px) {
+        .graph-toolbar, #controls, #layout-container{
+          left: 12px;
+        }
+      }
+
       .view-btn {
         padding: 8px 15px;
         background: transparent;
         border: none;
-        color: #9ca3af;
+        color: #5b616e;
         cursor: pointer;
         font-size: 13px;
       }
@@ -895,7 +1016,7 @@
       .form-group input:focus,
       .form-group select:focus {
         outline: none;
-        border-color: #7c3aed;
+        border-color: #300551;
       }
 
       .modal-actions {
@@ -914,12 +1035,12 @@
       }
 
       .btn-primary {
-        background: #7c3aed;
+        background: #300551;
         color: white;
       }
 
       .btn-primary:hover {
-        background: #6d28d9;
+        background: #300551;
       }
 
       .btn-secondary {
@@ -965,9 +1086,25 @@
 
       /* Edit mode button */
       .control-btn.edit-mode {
-        background: #ff6d01;
-        border-color: #ff6d01;
-        color:#fff;
+        background: transparent;
+        border-color: #7c3aed;
+        color:#7c3aed;
+      }
+      
+      .control-btn.whiteBtn.edit-mode:hover{
+        background: transparent;
+        border-color: #7c3aed;
+        color:#7c3aed;
+      }
+
+      #btn-edit .edit-btn-icon-x {
+        display: none;
+      }
+      #btn-edit.edit-mode .edit-btn-icon-pencil {
+        display: none;
+      }
+      #btn-edit.edit-mode .edit-btn-icon-x {
+        display: block;
       }
 
       /* NL Edit command box */
@@ -1076,7 +1213,7 @@
       }
 
       #layout-select {
-        margin-top: 5px;
+        margin-left: 5px;
         padding: 6px 10px;
         background: #f9fafb;
         border: 1px solid #e5e7eb;
@@ -1301,6 +1438,12 @@
         </div>
       </div>
 
+      <div
+        id="sidebar-backdrop"
+        class="sidebar-backdrop"
+        aria-hidden="true"
+      ></div>
+
       <div id="graph-container">
         <div id="loading">
           <div class="spinner"></div>
@@ -1308,9 +1451,36 @@
         </div>
         <svg id="graph"></svg>
 
-        <div id="view-toggle">
-          <button class="view-btn active" data-view="full">Full Graph</button>
-          <button class="view-btn" data-view="query">Query Results</button>
+        <div id="graph-toolbar" class="graph-toolbar">
+          <button
+            type="button"
+            id="sidebar-menu-btn"
+            class="sidebar-menu-btn control-btn whiteBtn"
+            aria-controls="sidebar"
+            aria-expanded="false"
+            aria-label="Open menu"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="4" x2="20" y1="12" y2="12" />
+              <line x1="4" x2="20" y1="6" y2="6" />
+              <line x1="4" x2="20" y1="18" y2="18" />
+            </svg>
+          </button>
+          <div id="view-toggle">
+            <button class="view-btn active" data-view="full">Full Graph</button>
+            <button class="view-btn" data-view="query">Query Results</button>
+          </div>
         </div>
 
         <div id="controls">
@@ -1384,10 +1554,26 @@
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
-              class="lucide lucide-pencil"
+              class="lucide lucide-pencil edit-btn-icon edit-btn-icon-pencil"
             >
               <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
               <path d="m15 5 4 4" />
+            </svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="lucide lucide-x edit-btn-icon edit-btn-icon-x"
+              aria-hidden="true"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
             </svg>
             Edit Mode
           </button>
@@ -1709,6 +1895,7 @@
           setupSearch();
           setupQuery();
           setupControls();
+          setupSidebarDrawer();
 
           // Hide loading
           document.getElementById("loading").style.display = "none";
@@ -2314,6 +2501,58 @@
         });
       }
 
+      function setupSidebarDrawer() {
+        const app = document.getElementById("app");
+        const backdrop = document.getElementById("sidebar-backdrop");
+        const menuBtn = document.getElementById("sidebar-menu-btn");
+        if (!app || !backdrop || !menuBtn) return;
+
+        const mq = window.matchMedia("(max-width: 1023px)");
+
+        function syncDrawerState() {
+          if (!mq.matches) {
+            app.classList.remove("sidebar-drawer-open");
+            document.body.style.overflow = "";
+            menuBtn.setAttribute("aria-expanded", "false");
+            menuBtn.setAttribute("aria-label", "Open menu");
+            backdrop.setAttribute("aria-hidden", "true");
+          }
+        }
+
+        function setOpen(open) {
+          if (!mq.matches) return;
+          app.classList.toggle("sidebar-drawer-open", open);
+          const isOpen = app.classList.contains("sidebar-drawer-open");
+          menuBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+          menuBtn.setAttribute("aria-label", isOpen ? "Close menu" : "Open menu");
+          backdrop.setAttribute("aria-hidden", isOpen ? "false" : "true");
+          document.body.style.overflow = isOpen ? "hidden" : "";
+        }
+
+        menuBtn.addEventListener("click", () => {
+          if (!mq.matches) return;
+          setOpen(!app.classList.contains("sidebar-drawer-open"));
+        });
+
+        backdrop.addEventListener("click", () => {
+          if (mq.matches && app.classList.contains("sidebar-drawer-open")) {
+            setOpen(false);
+          }
+        });
+
+        document.addEventListener("keydown", (e) => {
+          if (
+            e.key === "Escape" &&
+            mq.matches &&
+            app.classList.contains("sidebar-drawer-open")
+          ) {
+            setOpen(false);
+          }
+        });
+
+        window.addEventListener("resize", syncDrawerState);
+      }
+
       function setupControls() {
         // View toggle
         document.querySelectorAll(".view-btn").forEach((btn) => {
@@ -2361,7 +2600,6 @@
         editBtn.addEventListener("click", () => {
           editMode = !editMode;
           editBtn.classList.toggle("edit-mode", editMode);
-          editBtn.textContent = editMode ? "Exit Edit" : "Edit Mode";
         });
 
         // Add entity button
