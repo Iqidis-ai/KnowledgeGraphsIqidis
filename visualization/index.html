@@ -1013,6 +1013,7 @@
         let svg, g, link, node;
         let activeFilters = new Set();
         let showFacts = false;
+        let factsLoaded = false;
         let zoom;
 
         // Type colors
@@ -1346,8 +1347,12 @@
                 container.innerHTML += `<div class="connection-item" style="color: #9ca3af;">... and ${connections.length - 15} more</div>`;
             }
 
-            // Add action buttons
+            // Add action buttons (remove previous ones first to avoid duplication)
+            const existingActions = details.querySelector('.entity-actions');
+            if (existingActions) existingActions.remove();
+
             const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'entity-actions';
             actionsDiv.style.cssText = 'margin-top: 15px; display: flex; gap: 8px;';
             actionsDiv.innerHTML = `
                 <button class="btn btn-secondary" style="flex:1; padding: 8px; font-size: 12px;" onclick="showEditModal(window._selectedEntity)">Edit</button>
@@ -1608,14 +1613,44 @@
 
             // Facts toggle
             const factsBtn = document.getElementById('btn-facts');
-            factsBtn.addEventListener('click', () => {
+            factsBtn.addEventListener('click', async () => {
                 showFacts = !showFacts;
                 factsBtn.classList.toggle('active', showFacts);
 
+                if (showFacts && !factsLoaded) {
+                    // Facts were excluded from initial load — fetch with facts included
+                    factsBtn.disabled = true;
+                    factsBtn.textContent = 'Loading…';
+                    try {
+                        const res = await fetch(`${API_BASE}/api/graph?include_facts=true&limit=5000`);
+                        const dataWithFacts = await res.json();
+                        // Merge fact nodes and their edges into fullGraphData
+                        const existingIds = new Set(fullGraphData.nodes.map(n => n.id));
+                        const newNodes = dataWithFacts.nodes.filter(n => !existingIds.has(n.id));
+                        fullGraphData.nodes.push(...newNodes);
+                        const existingEdgeKeys = new Set(fullGraphData.links.map(l => `${l.source.id ?? l.source}-${l.target.id ?? l.target}`));
+                        const newLinks = dataWithFacts.links.filter(l => {
+                            const key = `${l.source.id ?? l.source}-${l.target.id ?? l.target}`;
+                            return !existingEdgeKeys.has(key);
+                        });
+                        fullGraphData.links.push(...newLinks);
+                        factsLoaded = true;
+                        // Rebuild type filters to include Fact
+                        createTypeFilters();
+                    } catch (e) {
+                        console.error('Failed to load facts:', e);
+                    } finally {
+                        factsBtn.disabled = false;
+                        factsBtn.textContent = showFacts ? 'Hide Facts' : 'Show Facts';
+                    }
+                }
+
                 if (showFacts) {
                     activeFilters.add('Fact');
+                    factsBtn.textContent = 'Hide Facts';
                 } else {
                     activeFilters.delete('Fact');
+                    factsBtn.textContent = 'Show Facts';
                 }
 
                 // Update checkbox

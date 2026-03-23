@@ -1426,7 +1426,7 @@ def api_shortest_path():
 
         # Get entities for this matter
         cursor.execute('SELECT id, canonical_name, type FROM kg_entities WHERE matter_id = %s AND status = %s', (matter_id, 'active'))
-        entities = {row['id']: dict(row) for row in cursor.fetchall()}
+        entities = {str(row['id']): dict(row) for row in cursor.fetchall()}
 
         if source_id not in entities:
             return jsonify({'error': f'Source entity {source_id} not found'}), 404
@@ -1444,13 +1444,13 @@ def api_shortest_path():
         # node -> [(neighbor, edge_id, relation)]
         adj: Dict[str, List[Tuple[str, str, str]]] = {}
         for edge in edges:
-            src, tgt = edge['source_entity_id'], edge['target_entity_id']
+            src, tgt = str(edge['source_entity_id']), str(edge['target_entity_id'])
             if src not in adj:
                 adj[src] = []
             if tgt not in adj:
                 adj[tgt] = []
-            adj[src].append((tgt, edge['id'], edge['relation_type']))
-            adj[tgt].append((src, edge['id'], edge['relation_type']))
+            adj[src].append((tgt, str(edge['id']), edge['relation_type']))
+            adj[tgt].append((src, str(edge['id']), edge['relation_type']))
 
         # BFS to find shortest path
         from collections import deque
