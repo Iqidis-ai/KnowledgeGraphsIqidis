@@ -1,10 +1,13 @@
 <!doctype html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Knowledge Graph</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&family=Rethink+Sans:wght@400;500;600;700;800&family=Roboto:wght@300;400;500;700&family=Open+Sans:wght@300;400;500;600;700&family=Lato:wght@300;400;700&family=Montserrat:wght@300;400;500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&family=Merriweather:wght@300;400;700&family=Lora:wght@400;500;600;700&family=PT+Serif:wght@400;700&family=Libre+Baskerville:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
       body,
@@ -58,16 +61,40 @@
         display: flex;
         flex-direction: column;
         border-right: 1px solid #e5e7eb;
-        border-top-right-radius: 16px;
+        /* border-top-right-radius: 16px; */
       }
 
       .sidebar-section {
-        padding: 15px 12px;
+        padding: 15px 15px;
         border-block: 1px solid #e5e7eb;
       }
 
       #sidebar .sidebar-section:first-child {
-        border-top-right-radius: 16px;
+        padding-left: 20px;
+      }
+
+      #sidebar .sidebar-section.sidebar-header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      #sidebar .sidebar-section.sidebar-header-row h1 {
+        margin: 0;
+        flex: 1;
+        min-width: 0;
+      }
+
+      #sidebar .sidebar-close-btn {
+        display: none;
+        flex-shrink: 0;
+        padding: 6px;
+        min-width: 36px;
+        min-height: auto;
+        justify-content: center;
+        border: 0px none !important;
+        background-color: transparent !important;
       }
 
       .sidebar-scroll {
@@ -379,7 +406,7 @@
         padding-top: 10px;
         border-top: 1px solid #e5e7eb;
         font-size: 11px;
-        color: #9ca3af;
+        color: #6b7280;
       }
 
       /* Search */
@@ -681,44 +708,91 @@
       }
 
       .control-btn.active {
-        background: #7c3aed;
+        background: transparent;
         border-color: #7c3aed;
-        color: white;
+        color: #7c3aed;
+      }
+
+      .control-btn.active:hover {
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
+      }
+
+      .control-btn.active:hover:not(:disabled) {
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
       }
 
       .outlineBtn {
-        border-width: 1px;
-        border-style: solid;
-        border-color: hsl(var(--input));
+        border-width: 1px !important;
+        border-style: solid !important;
+        border-color: hsl(var(--input)) !important;
         border-radius: 8px;
         transition-property: all;
         transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
         transition-duration: 300ms;
+        background-color: transparent;
       }
 
       .outlineBtn:hover {
         background-color: transparent;
-        color: #a652f6;
-        border-color: #a652f6;
+        color: #a652f6 !important;
+        border-color: #a652f6 !important;
       }
 
       .control-btn.outlineBtn.active:hover {
-        background: #7c3aed;
+        background: transparent;
         border-color: #7c3aed;
-        color: #fff;
+        color: #7c3aed;
       }
 
       .control-btn.outlineBtn.edit-mode:hover {
-        background: #ff6d01;
-        border-color: #ff6d01;
-        color: #fff;
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
+      }
+
+      .control-btn.outlineBtn.edit-mode.active:hover {
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
+      }
+
+      .control-btn.outlineBtn.edit-mode.active:hover:not(:disabled) {
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
+      }
+
+      /* Top toolbar: menu (mobile) + view mode toggle */
+      .graph-toolbar {
+        position: absolute;
+        top: 12px;
+        left: 20px;
+        z-index: 100;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        gap: 8px;
+        max-width: calc(100% - 40px);
+      }
+
+      .sidebar-menu-btn {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 10px;
+        min-width: 40px;
+      }
+
+      .sidebar-menu-btn svg {
+        flex-shrink: 0;
       }
 
       /* View Mode Toggle */
       #view-toggle {
-        position: absolute;
-        top: 20px;
-        left: 20px;
         display: flex;
         background: #ffffff;
         border-radius: 8px;
@@ -726,11 +800,91 @@
         border: 1px solid #e5e7eb;
       }
 
+      #sidebar-backdrop {
+        display: none;
+      }
+
+      @media (max-width: 1023px) {
+        .sidebar-menu-btn {
+          display: inline-flex;
+        }
+
+        #sidebar-backdrop {
+          display: block;
+          position: fixed;
+          inset: 0;
+          z-index: 2090;
+          background: rgba(0, 0, 0, 0.4);
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          transition:
+            opacity 0.2s ease,
+            visibility 0.2s ease;
+        }
+
+        #app.sidebar-drawer-open #sidebar-backdrop {
+          opacity: 1;
+          visibility: visible;
+          pointer-events: auto;
+        }
+
+        #sidebar {
+          position: fixed;
+          left: 0;
+          top: 0;
+          height: 100%;
+          max-height: 100dvh;
+          width: min(330px, 92vw);
+          z-index: 2100;
+          transform: translateX(-100%);
+          transition: transform 0.25s ease;
+          /* box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12); */
+          border-right: 1px solid #e5e7eb;
+          padding-top: env(safe-area-inset-top, 0);
+        }
+
+        #app.sidebar-drawer-open #sidebar {
+          transform: translateX(0);
+        }
+
+        #sidebar .sidebar-close-btn {
+          display: inline-flex;
+        }
+
+        #sidebar .sidebar-content {
+          flex: 1;
+          min-height: 0;
+        }
+
+        #controls {
+          left: 20px;
+          right: 20px;
+          width: auto;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          overflow-y: hidden;
+          -webkit-overflow-scrolling: touch;
+          padding-bottom: 5px;
+        }
+
+        #controls .control-btn {
+          flex-shrink: 0;
+          white-space: nowrap;
+        }
+
+        .drawerCloseBtnBox {
+          width: 100%;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+      }
       .view-btn {
         padding: 8px 15px;
         background: transparent;
         border: none;
-        color: #9ca3af;
+        color: #5b616e;
         cursor: pointer;
         font-size: 13px;
       }
@@ -840,10 +994,10 @@
 
       .modal-box {
         background: #ffffff;
-        border-radius: 12px;
-        padding: 25px;
+        border-radius: 20px;
+        padding: 24px;
         min-width: 400px;
-        max-width: 550px;
+        max-width: 600px;
         max-height: 80vh;
         overflow-y: auto;
         box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
@@ -852,7 +1006,8 @@
       .modal-box h2 {
         margin: 0 0 20px;
         color: #1f2937;
-        font-size: 1.2rem;
+        font-size: 1.25rem;
+        text-transform: none;
       }
 
       .modal-close {
@@ -867,15 +1022,16 @@
       }
 
       .form-group {
-        margin-bottom: 15px;
+        margin-bottom: 20px;
       }
 
       .form-group label {
         display: block;
         margin-bottom: 5px;
-        color: #6b7280;
-        font-size: 12px;
-        text-transform: uppercase;
+        color: #1a1820;
+        font-size: 14px;
+        font-weight: 600;
+        /* text-transform: uppercase; */
       }
 
       .form-group input,
@@ -884,7 +1040,7 @@
         padding: 10px 12px;
         border: 1px solid #e5e7eb;
         border-radius: 6px;
-        background: #f9fafb;
+        background: #fff;
         color: #1f2937;
         font-size: 14px;
       }
@@ -892,7 +1048,7 @@
       .form-group input:focus,
       .form-group select:focus {
         outline: none;
-        border-color: #7c3aed;
+        border-color: #300551;
       }
 
       .modal-actions {
@@ -911,12 +1067,12 @@
       }
 
       .btn-primary {
-        background: #7c3aed;
+        background: #300551;
         color: white;
       }
 
       .btn-primary:hover {
-        background: #6d28d9;
+        background: #300551;
       }
 
       .btn-secondary {
@@ -962,9 +1118,25 @@
 
       /* Edit mode button */
       .control-btn.edit-mode {
-        background: #ff6d01;
-        border-color: #ff6d01;
-        color:#fff;
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
+      }
+
+      .control-btn.whiteBtn.edit-mode:hover {
+        background: transparent;
+        border-color: #7c3aed;
+        color: #7c3aed;
+      }
+
+      #btn-edit .edit-btn-icon-x {
+        display: none;
+      }
+      #btn-edit.edit-mode .edit-btn-icon-pencil {
+        display: none;
+      }
+      #btn-edit.edit-mode .edit-btn-icon-x {
+        display: block;
       }
 
       /* NL Edit command box */
@@ -1017,6 +1189,11 @@
         margin-top: 10px;
         font-size: 12px;
         color: #6b7280;
+      }
+
+      #nl-edit-btn:disabled {
+        color: #6b7280;
+        cursor: not-allowed;
       }
 
       .nl-edit-example {
@@ -1073,7 +1250,7 @@
       }
 
       #layout-select {
-        margin-top: 5px;
+        margin-left: 5px;
         padding: 6px 10px;
         background: #f9fafb;
         border: 1px solid #e5e7eb;
@@ -1130,6 +1307,7 @@
 
       .sidebar-content {
         overflow: auto;
+        border-top: 1px solid #e5e7eb;
       }
 
       .sectionTitle {
@@ -1144,14 +1322,33 @@
       html.dark .sectionTitle {
         color: #fff;
       }
-      .export-option{
+      .export-option {
         font-size: 12px;
+      }
+
+      @media (max-width: 576px) {
+        .graph-toolbar,
+        #controls,
+        #layout-container,
+        #layout-container {
+          left: 12px;
+        }
+        #legend {
+          right: 12px;
+        }
+
+        .modal-box {
+          max-width: 96vw !important;
+          min-width: auto !important;
+          width: 100%;
+        }
       }
     </style>
   </head>
 
   <body>
     <div id="app">
+<<<<<<< HEAD
 <<<<<<< HEAD
       <div id="sidebar">
         <div class="sidebar-section">
@@ -1244,12 +1441,39 @@
 >>>>>>> cd9c319cb86bc9485b011109ba0fbafce5dce91e
         </div>
 
+=======
+      <div id="sidebar">
+>>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
         <div class="sidebar-content">
           <div
             class="sidebar-section"
             style="border-radius: 0px; border-top: 0px none"
           >
-            <h2 style="margin: 0px 0px 10px 0px">Ask a Question</h2>
+            <h2 class="drawerCloseBtnBox" style="margin: 0px 0px 10px 0px">
+             <span class="sectionTitle">Ask a Question</span>
+              <button
+                type="button"
+                id="sidebar-close-btn"
+                class="sidebar-close-btn control-btn"
+                aria-label="Close menu"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </h2>
             <div id="query-container">
               <textarea
                 id="query-input"
@@ -1280,6 +1504,9 @@
                   class="sample-query"
                   data-query="What obligations are mentioned?"
                   >Obligations</span
+                >
+                <span class="sample-query" data-query="Summarize the key terms"
+                  >Key terms</span
                 >
               </div>
             </div>
@@ -1385,16 +1612,49 @@
         </div>
       </div>
 
+      <div
+        id="sidebar-backdrop"
+        class="sidebar-backdrop"
+        aria-hidden="true"
+      ></div>
+
       <div id="graph-container">
         <div id="loading">
           <div class="spinner"></div>
-          <div>Loading knowledge graph...</div>
+          <div style="color: #6b7280">Loading knowledge graph...</div>
         </div>
         <svg id="graph"></svg>
 
-        <div id="view-toggle">
-          <button class="view-btn active" data-view="full">Full Graph</button>
-          <button class="view-btn" data-view="query">Query Results</button>
+        <div id="graph-toolbar" class="graph-toolbar">
+          <button
+            type="button"
+            id="sidebar-menu-btn"
+            class="sidebar-menu-btn control-btn whiteBtn"
+            aria-controls="sidebar"
+            aria-expanded="false"
+            aria-label="Open menu"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="4" x2="20" y1="12" y2="12" />
+              <line x1="4" x2="20" y1="6" y2="6" />
+              <line x1="4" x2="20" y1="18" y2="18" />
+            </svg>
+          </button>
+          <div id="view-toggle">
+            <button class="view-btn active" data-view="full">Full Graph</button>
+            <button class="view-btn" data-view="query">Query Results</button>
+          </div>
         </div>
 
         <div id="controls">
@@ -1450,7 +1710,9 @@
               stroke-linejoin="round"
               class="lucide lucide-scroll-text"
             >
-              <path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4" />
+              <path
+                d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"
+              />
               <path d="M19 8h-5" />
               <path d="M19 12h-7" />
               <path d="M19 16h-5" />
@@ -1468,10 +1730,28 @@
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
-              class="lucide lucide-pencil"
+              class="lucide lucide-pencil edit-btn-icon edit-btn-icon-pencil"
             >
-              <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+              <path
+                d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"
+              />
               <path d="m15 5 4 4" />
+            </svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="lucide lucide-x edit-btn-icon edit-btn-icon-x"
+              aria-hidden="true"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
             </svg>
             Edit Mode
           </button>
@@ -1508,7 +1788,9 @@
               class="lucide lucide-copy"
             >
               <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-              <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+              <path
+                d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
+              />
             </svg>
             Find Duplicates
           </button>
@@ -1571,7 +1853,7 @@
             >
               <path d="M3 3v16a2 2 0 0 0 2 2h16" />
               <path d="M18 17V9" />
-              <path d="M13 17V5" /> 
+              <path d="M13 17V5" />
               <path d="M8 17v-3" />
             </svg>
             Analytics
@@ -1805,9 +2087,13 @@
       let svg, g, link, node;
       let activeFilters = new Set();
       let showFacts = false;
+      let editMode = false;
       let zoom;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
       // Type colors
       const TYPE_COLORS = {
         Organization: "#7c3aed",
@@ -1819,6 +2105,7 @@
         Reference: "#8b5cf6",
         Fact: "#6b7280",
       };
+<<<<<<< HEAD
 =======
                 // Set matter label from URL param (the parent app provides the display name)
                 const matterLabel = document.getElementById('matter-label');
@@ -1831,6 +2118,8 @@
                 // Create type filters
                 createTypeFilters();
 >>>>>>> cd9c319cb86bc9485b011109ba0fbafce5dce91e
+=======
+>>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
 
       // Confidence ring colors
       const CONFIDENCE_COLORS = {
@@ -1855,6 +2144,13 @@
           document.getElementById("stat-docs").textContent =
             fullGraphData.stats.total_documents || "-";
 
+          // Matter label from URL (parent app); optional element in sidebar
+          const matterLabel = document.getElementById("matter-label");
+          if (matterLabel) {
+            const params = new URLSearchParams(window.location.search);
+            matterLabel.textContent = params.get("matter_name") || "";
+          }
+
           // Create type filters
           createTypeFilters();
 
@@ -1865,6 +2161,7 @@
           setupSearch();
           setupQuery();
           setupControls();
+          setupSidebarDrawer();
 
           // Hide loading
           document.getElementById("loading").style.display = "none";
@@ -2148,7 +2445,11 @@
       }
 
       function handleClick(event, d) {
-        showEntityDetails(d);
+        if (editMode) {
+          showEditModal(d);
+        } else {
+          showEntityDetails(d);
+        }
       }
 
       function showEntityDetails(d) {
@@ -2209,6 +2510,7 @@
         const actionsDiv = document.createElement("div");
         actionsDiv.style.cssText = "margin-top: 15px; display: flex; gap: 8px;";
         actionsDiv.innerHTML = `
+<<<<<<< HEAD
 =======
             // Add action buttons (remove previous ones first to avoid duplication)
             const existingActions = details.querySelector('.entity-actions');
@@ -2221,6 +2523,10 @@
 >>>>>>> cd9c319cb86bc9485b011109ba0fbafce5dce91e
                 <button class="btn btn-secondary" style="flex:1; padding: 8px; font-size: 12px;" onclick="showEditModal(window._selectedEntity)">Edit</button>
                 <button class="btn btn-secondary" style="flex:1; padding: 8px; font-size: 12px;" onclick="showCreateEdgeModal(window._selectedEntity)">+ Link</button>
+=======
+                <button class="btn outlineBtn" style="flex:1; padding: 8px; font-size: 12px;" onclick="showEditModal(window._selectedEntity)">Edit</button>
+                <button class="btn whiteBtn" style="flex:1; padding: 8px; font-size: 12px;" onclick="showCreateEdgeModal(window._selectedEntity)">+ Link</button>
+>>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
             `;
         details.appendChild(actionsDiv);
 
@@ -2810,6 +3116,70 @@
         });
       }
 
+      function setupSidebarDrawer() {
+        const app = document.getElementById("app");
+        const backdrop = document.getElementById("sidebar-backdrop");
+        const menuBtn = document.getElementById("sidebar-menu-btn");
+        const closeBtn = document.getElementById("sidebar-close-btn");
+        if (!app || !backdrop || !menuBtn) return;
+
+        const mq = window.matchMedia("(max-width: 1023px)");
+
+        function syncDrawerState() {
+          if (!mq.matches) {
+            app.classList.remove("sidebar-drawer-open");
+            document.body.style.overflow = "";
+            menuBtn.setAttribute("aria-expanded", "false");
+            menuBtn.setAttribute("aria-label", "Open menu");
+            backdrop.setAttribute("aria-hidden", "true");
+          }
+        }
+
+        function setOpen(open) {
+          if (!mq.matches) return;
+          app.classList.toggle("sidebar-drawer-open", open);
+          const isOpen = app.classList.contains("sidebar-drawer-open");
+          menuBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+          menuBtn.setAttribute(
+            "aria-label",
+            isOpen ? "Close menu" : "Open menu",
+          );
+          backdrop.setAttribute("aria-hidden", isOpen ? "false" : "true");
+          document.body.style.overflow = isOpen ? "hidden" : "";
+        }
+
+        menuBtn.addEventListener("click", () => {
+          if (!mq.matches) return;
+          setOpen(!app.classList.contains("sidebar-drawer-open"));
+        });
+
+        if (closeBtn) {
+          closeBtn.addEventListener("click", () => {
+            if (mq.matches && app.classList.contains("sidebar-drawer-open")) {
+              setOpen(false);
+            }
+          });
+        }
+
+        backdrop.addEventListener("click", () => {
+          if (mq.matches && app.classList.contains("sidebar-drawer-open")) {
+            setOpen(false);
+          }
+        });
+
+        document.addEventListener("keydown", (e) => {
+          if (
+            e.key === "Escape" &&
+            mq.matches &&
+            app.classList.contains("sidebar-drawer-open")
+          ) {
+            setOpen(false);
+          }
+        });
+
+        window.addEventListener("resize", syncDrawerState);
+      }
+
       function setupControls() {
         // View toggle
         document.querySelectorAll(".view-btn").forEach((btn) => {
@@ -2857,7 +3227,6 @@
         editBtn.addEventListener("click", () => {
           editMode = !editMode;
           editBtn.classList.toggle("edit-mode", editMode);
-          editBtn.textContent = editMode ? "Exit Edit" : "Edit Mode";
         });
 
         // Add entity button
@@ -3227,7 +3596,7 @@
                 <div class="modal-actions">
                     <button class="btn btn-danger" onclick="deleteEntity('${entity.entity_id}')">Delete</button>
                     <button class="btn btn-secondary" onclick="startMerge('${entity.entity_id}', '${entity.full_name || entity.name}')">Merge With...</button>
-                    <button class="btn btn-primary" onclick="saveEntity('${entity.entity_id}')">Save</button>
+                    <button class="btn primaryNewBtn" onclick="saveEntity('${entity.entity_id}')">Save</button>
                 </div>
             `;
 
@@ -3244,17 +3613,17 @@
         content.innerHTML = `
                 <div class="form-group">
                     <label>Name</label>
-                    <input type="text" id="edit-name" placeholder="Entity name">
+                    <input type="text" id="edit-name" class="input-styled" placeholder="Entity name">
                 </div>
                 <div class="form-group">
                     <label>Type</label>
-                    <select id="edit-type">
+                    <select id="edit-type" class="input-styled">
                         ${entityTypes.map((t) => `<option value="${t}">${t}</option>`).join("")}
                     </select>
                 </div>
                 <div class="modal-actions">
-                    <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                    <button class="btn btn-primary" onclick="createEntity()">Create</button>
+                    <button class="btn outlineBtn" onclick="closeModal()">Cancel</button>
+                    <button class="btn primaryNewBtn" onclick="createEntity()">Create</button>
                 </div>
             `;
 
@@ -3287,8 +3656,8 @@
                     <input type="hidden" id="edge-target">
                 </div>
                 <div class="modal-actions">
-                    <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                    <button class="btn btn-primary" onclick="createEdge()">Create</button>
+                    <button class="btn outlineBtn" onclick="closeModal()">Cancel</button>
+                    <button class="btn primaryNewBtn" onclick="createEdge()">Create</button>
                 </div>
             `;
 
@@ -3453,8 +3822,8 @@
                     <input type="hidden" id="merge-target">
                 </div>
                 <div class="modal-actions">
-                    <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                    <button class="btn btn-primary" onclick="executeMerge()">Merge</button>
+                    <button class="btn outlineBtn" onclick="closeModal()">Cancel</button>
+                    <button class="btn primaryNewBtn" onclick="executeMerge()">Merge</button>
                 </div>
             `;
 
@@ -3584,8 +3953,8 @@
                           .join("")}
                     </div>
                     <div class="modal-actions" style="margin-top: 15px;">
-                        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                        <button class="btn btn-primary" onclick="mergeSelectedDuplicates()">Merge Selected</button>
+                        <button class="btn outlineBtn" onclick="closeModal()">Cancel</button>
+                        <button class="btn primaryNewBtn" onclick="mergeSelectedDuplicates()">Merge Selected</button>
                     </div>
                 `;
         } catch (error) {
@@ -3697,7 +4066,7 @@
                           .join("")}
                     </div>
                     <div class="modal-actions" style="margin-top: 15px;">
-                        <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+                        <button class="btn outlineBtn" onclick="closeModal()">Close</button>
                     </div>
                 `;
         } catch (error) {
@@ -3761,7 +4130,7 @@
                           .join("")}
                     </div>
                     <div class="modal-actions" style="margin-top: 15px;">
-                        <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+                        <button class="btn outlineBtn" onclick="closeModal()">Close</button>
                     </div>
                 `;
         } catch (error) {
@@ -3827,7 +4196,7 @@
                         ${renderSection("Betweenness", analytics.betweenness)}
                     </div>
                     <div class="modal-actions" style="margin-top: 15px;">
-                        <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+                        <button class="btn outlineBtn" onclick="closeModal()">Close</button>
                     </div>
                 `;
         } catch (error) {
@@ -3851,18 +4220,18 @@
         content.innerHTML = `
                 <div class="form-group">
                     <label>Source Entity</label>
-                    <input type="text" id="path-source-search" placeholder="Search for source entity..." autocomplete="off">
-                    <div id="path-source-results" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
+                    <input class="input-styled" type="text" id="path-source-search" placeholder="Search for source entity..." autocomplete="off">
+                    <div id="path-source-results" style="margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
                 </div>
                 <div class="form-group">
                     <label>Target Entity</label>
-                    <input type="text" id="path-target-search" placeholder="Search for target entity..." autocomplete="off">
-                    <div id="path-target-results" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
+                    <input class="input-styled" type="text" id="path-target-search" placeholder="Search for target entity..." autocomplete="off">
+                    <div id="path-target-results" style="margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
                 </div>
                 <div id="path-result-area"></div>
                 <div class="modal-actions" style="margin-top: 15px;">
-                    <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                    <button class="btn btn-primary" id="btn-find-path-go">Find Path</button>
+                    <button class="btn outlineBtn" onclick="closeModal()">Cancel</button>
+                    <button class="btn primaryNewBtn" id="btn-find-path-go">Find Path</button>
                 </div>
             `;
         modal.classList.add("active");
@@ -4029,6 +4398,7 @@
         });
       }
 
+<<<<<<< HEAD
       async function exportGraph(format) {
         try {
           const url = `${API_BASE}/api/export?format=${format}&include_facts=true`;
@@ -4051,6 +4421,8 @@
       }
 
 <<<<<<< HEAD
+=======
+>>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
       function downloadBlob(blob, filename) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -4062,9 +4434,17 @@
         URL.revokeObjectURL(url);
       }
 
-      // Update click handler to support edit mode
-      let editMode = false;
+      async function exportGraph(format) {
+        try {
+          const url = `${API_BASE}/api/export?format=${format}&include_facts=true`;
+          // Always use fetch so the matter_id interceptor injects the param
+          const response = await fetch(url);
+          if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(errText || `Export failed (${response.status})`);
+          }
 
+<<<<<<< HEAD
       function handleClick(event, d) {
         if (editMode) {
           showEditModal(d);
@@ -4096,6 +4476,23 @@
                 alert('Export failed: ' + error.message);
             }
 >>>>>>> cd9c319cb86bc9485b011109ba0fbafce5dce91e
+=======
+          if (format === "json") {
+            const data = await response.json();
+            const blob = new Blob([JSON.stringify(data, null, 2)], {
+              type: "application/json",
+            });
+            downloadBlob(blob, "knowledge_graph.json");
+          } else if (format === "csv") {
+            const blob = await response.blob();
+            downloadBlob(blob, "knowledge_graph_export.zip");
+          } else if (format === "graphml") {
+            const blob = await response.blob();
+            downloadBlob(blob, "knowledge_graph.graphml");
+          }
+        } catch (error) {
+          alert("Export failed: " + error.message);
+>>>>>>> 502d5ec00b0b4454a9cf4b0f9974cab33830badc
         }
       }
 
