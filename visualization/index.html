@@ -1,9 +1,10 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Knowledge Graph - CITIOM v Gulfstream</title>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Graph</title>
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&family=Rethink+Sans:wght@400;500;600;700;800&family=Roboto:wght@300;400;500;700&family=Open+Sans:wght@300;400;500;600;700&family=Lato:wght@300;400;700&family=Montserrat:wght@300;400;500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&family=Merriweather:wght@300;400;700&family=Lora:wght@400;500;600;700&family=PT+Serif:wght@400;700&family=Libre+Baskerville:wght@400;700&display=swap"
       rel="stylesheet"
@@ -65,7 +66,7 @@
       }
 
       .sidebar-section {
-        padding: 15px 12px;
+        padding: 15px 15px;
         border-block: 1px solid #e5e7eb;
       }
 
@@ -1317,6 +1318,7 @@
 
       .sidebar-content {
         overflow: auto;
+        border-top: 1px solid #e5e7eb;
       }
 
       .sectionTitle {
@@ -1340,33 +1342,29 @@
   <body>
     <div id="app">
       <div id="sidebar">
-        <!-- <div class="sidebar-section sidebar-header-row"> -->
-          <!-- <h1><span>CITIOM v Gulfstream</span></h1> -->
-          <!-- <button
-            type="button"
-            id="sidebar-close-btn"
-            class="sidebar-close-btn control-btn"
-            aria-label="Close menu"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
-          </button> -->
-        <!-- </div> -->
-
         <div class="sidebar-content">
+          <button
+          type="button"
+          id="sidebar-close-btn"
+          class="sidebar-close-btn control-btn"
+          aria-label="Close menu"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
           <div
             class="sidebar-section"
             style="border-radius: 0px; border-top: 0px none"
@@ -1402,6 +1400,11 @@
                   class="sample-query"
                   data-query="What obligations are mentioned?"
                   >Obligations</span
+                >
+                <span
+                  class="sample-query"
+                  data-query="Summarize the key terms"
+                  >Key terms</span
                 >
               </div>
             </div>
@@ -1516,7 +1519,7 @@
       <div id="graph-container">
         <div id="loading">
           <div class="spinner"></div>
-          <div>Loading knowledge graph...</div>
+          <div style="color: #6b7280;">Loading knowledge graph...</div>
         </div>
         <svg id="graph"></svg>
 
@@ -1923,6 +1926,7 @@
       let svg, g, link, node;
       let activeFilters = new Set();
       let showFacts = false;
+      let editMode = false;
       let zoom;
 
       // Type colors
@@ -1936,6 +1940,16 @@
         Reference: "#8b5cf6",
         Fact: "#6b7280",
       };
+      // Set matter label from URL param (the parent app provides the display name)
+      const matterLabel = document.getElementById('matter-label');
+      if (matterLabel) {
+          const params = new URLSearchParams(window.location.search);
+          const matterName = params.get('matter_name');
+          matterLabel.textContent = matterName || '';
+      }
+
+      // Create type filters
+      createTypeFilters();
 
       // Confidence ring colors
       const CONFIDENCE_COLORS = {
@@ -2253,7 +2267,11 @@
       }
 
       function handleClick(event, d) {
-        showEntityDetails(d);
+        if (editMode) {
+          showEditModal(d);
+        } else {
+          showEntityDetails(d);
+        }
       }
 
       function showEntityDetails(d) {
@@ -3861,27 +3879,6 @@
         });
       }
 
-      async function exportGraph(format) {
-        try {
-          const url = `${API_BASE}/api/export?format=${format}&include_facts=true`;
-
-          if (format === "json") {
-            // For JSON, fetch and download
-            const response = await fetch(url);
-            const data = await response.json();
-            const blob = new Blob([JSON.stringify(data, null, 2)], {
-              type: "application/json",
-            });
-            downloadBlob(blob, "knowledge_graph.json");
-          } else {
-            // For CSV and GraphML, trigger direct download
-            window.location.href = url;
-          }
-        } catch (error) {
-          alert("Export failed: " + error.message);
-        }
-      }
-
       function downloadBlob(blob, filename) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -3893,15 +3890,42 @@
         URL.revokeObjectURL(url);
       }
 
-      // Update click handler to support edit mode
-      let editMode = false;
+      async function exportGraph(format) {
+        try {
+          const url = `${API_BASE}/api/export?format=${format}&include_facts=true`;
+          // Always use fetch so the matter_id interceptor injects the param
+          const response = await fetch(url);
+          if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(errText || `Export failed (${response.status})`);
+          }
 
-      function handleClick(event, d) {
-        if (editMode) {
-          showEditModal(d);
-        } else {
-          showEntityDetails(d);
+          if (format === "json") {
+            const data = await response.json();
+            const blob = new Blob([JSON.stringify(data, null, 2)], {
+              type: "application/json",
+            });
+            downloadBlob(blob, "knowledge_graph.json");
+          } else if (format === "csv") {
+            const blob = await response.blob();
+            downloadBlob(blob, "knowledge_graph_export.zip");
+          } else if (format === "graphml") {
+            const blob = await response.blob();
+            downloadBlob(blob, "knowledge_graph.graphml");
+          }
+        } catch (error) {
+          alert("Export failed: " + error.message);
         }
+      }
+      function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
       }
 
       // Start
