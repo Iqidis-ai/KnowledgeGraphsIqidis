@@ -30,59 +30,79 @@ from ..visualization.postgres_graph_exporter import PostgreSQLGraphExporter
 api = Blueprint('api', __name__, url_prefix='/api')
 
 
-# Global instances - initialized per matter
-_kg: Optional[KnowledgeGraph] = None
-_exporter: Optional[PostgreSQLGraphExporter] = None
-_matter_name: str = "default"
+# Per-matter instance cache — avoids global singleton swapping that caused
+# data spillover when multiple matters were accessed concurrently.
+_instances: Dict[str, Dict] = {}
 _nl_edit_client = None
 _nl_edit_model = None
 
 
+def _get_or_create_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
+                          db_url: Optional[str] = None) -> Dict:
+    """Get or create KG + exporter instances for a specific matter.
+
+    Instances are cached per matter_id so concurrent requests for different
+    matters never clobber each other.
+    """
+    global _nl_edit_client, _nl_edit_model
+    if matter_name in _instances:
+        return _instances[matter_name]
+
+    resolved_url = db_url or get_postgres_url()
+    kg = KnowledgeGraph(matter_name, api_key=api_key, db_url=resolved_url)
+    exporter = PostgreSQLGraphExporter(resolved_url, matter_name)
+
+    # Configure NL edit model (shared across matters)
+    if _nl_edit_client is None:
+        _nl_edit_client = genai.Client(api_key=api_key)
+        _nl_edit_model = 'gemini-2.0-flash'
+
+    entry = {"kg": kg, "exporter": exporter, "matter_name": matter_name}
+    _instances[matter_name] = entry
+    return entry
+
+
 def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
                 db_url: Optional[str] = None):
-    """Initialize the API for a specific matter.
-
-    Args:
-        matter_name: Matter ID (UUID)
-        api_key: Gemini API key
-        db_url: Optional explicit PostgreSQL URL (overrides env-based default)
-    """
-    global _kg, _exporter, _matter_name, _nl_edit_client, _nl_edit_model
-    _matter_name = matter_name
-    resolved_url = db_url or get_postgres_url()
-    _kg = KnowledgeGraph(matter_name, api_key=api_key, db_url=resolved_url)
-
-    # Initialize PostgreSQL exporter
-    _exporter = PostgreSQLGraphExporter(resolved_url, matter_name)
-
-    # Configure NL edit model
-    _nl_edit_client = genai.Client(api_key=api_key)
-    _nl_edit_model = 'gemini-2.0-flash'
+    """Initialize the API for a specific matter (backwards-compatible wrapper)."""
+    _get_or_create_matter(matter_name, api_key, db_url)
 
 
 def _ensure_matter(matter_id: Optional[str] = None):
     """Ensure API is initialized for the given matter_id. Uses query param, X-Matter-Id header, or passed arg."""
     mid = matter_id or request.args.get(
         'matter_id') or request.headers.get('X-Matter-Id')
-    if mid and mid != _matter_name:
-        init_matter(mid)
-    elif _kg is None:
+    if not mid:
         from flask import abort
         abort(400, description='matter_id required (query param or X-Matter-Id header)')
+    _get_or_create_matter(mid)
+
+
+def _get_matter_id() -> str:
+    """Get the current matter_id from the request context."""
+    mid = request.args.get('matter_id') or request.headers.get('X-Matter-Id')
+    if not mid:
+        from flask import abort
+        abort(400, description='matter_id required')
+    return mid
 
 
 def get_kg() -> KnowledgeGraph:
-    """Get the KnowledgeGraph instance."""
-    if _kg is None:
-        raise RuntimeError("API not initialized. Call init_matter() first.")
-    return _kg
+    """Get the KnowledgeGraph instance for the current request's matter."""
+    mid = _get_matter_id()
+    entry = _instances.get(mid)
+    if entry is None:
+        raise RuntimeError("API not initialized. Call _ensure_matter() first.")
+    return entry["kg"]
 
 
 def get_exporter() -> PostgreSQLGraphExporter:
-    """Get the PostgreSQLGraphExporter instance."""
-    if _exporter is None:
-        raise RuntimeError("API not initialized. Call init_matter() first.")
-    return _exporter
+    """Get the PostgreSQLGraphExporter instance for the current request's matter."""
+    mid = _get_matter_id()
+    entry = _instances.get(mid)
+    if entry is None:
+        raise RuntimeError("API not initialized. Call _ensure_matter() first.")
+    return entry["exporter"]
 
 
 # ==================== Health Check ====================
@@ -230,6 +250,7 @@ def api_update_entity(entity_id):
     try:
         exp = get_exporter()
         cursor = exp._get_cursor()
+        matter_id = _get_matter_id()
 
         updates = []
         params = []
@@ -251,10 +272,10 @@ def api_update_entity(entity_id):
             params.append(data['confidence'])
 
         if updates:
-            params.append(entity_id)
+            params.extend([entity_id, matter_id])
             cursor.execute(f'''
                 UPDATE kg_entities SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s
+                WHERE id = %s AND matter_id = %s
             ''', params)
             exp.conn.commit()
 
@@ -271,13 +292,14 @@ def api_delete_entity(entity_id):
     try:
         exp = get_exporter()
         cursor = exp._get_cursor()
+        matter_id = _get_matter_id()
 
-        cursor.execute('DELETE FROM kg_edges WHERE source_entity_id = %s OR target_entity_id = %s',
-                       (entity_id, entity_id))
+        cursor.execute('DELETE FROM kg_edges WHERE matter_id = %s AND (source_entity_id = %s OR target_entity_id = %s)',
+                       (matter_id, entity_id, entity_id))
         cursor.execute(
             'DELETE FROM kg_mentions WHERE entity_id = %s', (entity_id,))
         cursor.execute('DELETE FROM kg_aliases WHERE entity_id = %s', (entity_id,))
-        cursor.execute('DELETE FROM kg_entities WHERE id = %s', (entity_id,))
+        cursor.execute('DELETE FROM kg_entities WHERE id = %s AND matter_id = %s', (entity_id, matter_id))
 
         exp.conn.commit()
 
@@ -303,10 +325,11 @@ def api_create_entity():
         entity_id = str(uuid.uuid4())
 
         cursor.execute('''
-            INSERT INTO kg_entities (id, type, canonical_name, properties, confidence, status, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO kg_entities (id, matter_id, type, canonical_name, properties, confidence, status, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ''', (
             entity_id,
+            _get_matter_id(),
             data['type'],
             data['canonical_name'],
             json.dumps(data.get('properties', {})),
@@ -348,10 +371,11 @@ def api_create_edge():
         edge_id = str(uuid.uuid4())
 
         cursor.execute('''
-            INSERT INTO kg_edges (id, source_entity_id, target_entity_id, relation_type, confidence, properties, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            INSERT INTO kg_edges (id, matter_id, source_entity_id, target_entity_id, relation_type, confidence, properties, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
         ''', (
             edge_id,
+            _get_matter_id(),
             data['source_entity_id'],
             data['target_entity_id'],
             data['relation_type'],
@@ -375,7 +399,7 @@ def api_delete_edge(edge_id):
         exp = get_exporter()
         cursor = exp._get_cursor()
 
-        cursor.execute('DELETE FROM kg_edges WHERE id = %s', (edge_id,))
+        cursor.execute('DELETE FROM kg_edges WHERE id = %s AND matter_id = %s', (edge_id, _get_matter_id()))
         exp.conn.commit()
 
         return jsonify({'success': True, 'deleted': edge_id})
@@ -570,13 +594,14 @@ JSON response:"""
         elif action == 'rename':
             entity_name = parsed.get('entity_name', '')
             new_name = parsed.get('new_name', '')
+            matter_id = _get_matter_id()
 
             cursor.execute('''
                 SELECT id, canonical_name FROM kg_entities
-                WHERE canonical_name LIKE %s
+                WHERE matter_id = %s AND status = 'active' AND canonical_name LIKE %s
                 ORDER BY LENGTH(canonical_name)
                 LIMIT 1
-            ''', (f'%{entity_name}%',))
+            ''', (matter_id, f'%{entity_name}%'))
             row = cursor.fetchone()
 
             if not row:
@@ -587,8 +612,8 @@ JSON response:"""
 
             cursor.execute('''
                 UPDATE kg_entities SET canonical_name = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s
-            ''', (new_name, row['id']))
+                WHERE id = %s AND matter_id = %s
+            ''', (new_name, row['id'], matter_id))
             exp.conn.commit()
 
             return jsonify({
@@ -601,13 +626,14 @@ JSON response:"""
         elif action == 'merge':
             entity_to_remove = parsed.get('entity_to_remove', '')
             entity_to_keep = parsed.get('entity_to_keep', '')
+            matter_id = _get_matter_id()
 
-            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
-                           (f'%{entity_to_remove}%',))
+            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE matter_id = %s AND status = %s AND canonical_name LIKE %s LIMIT 1',
+                           (matter_id, 'active', f'%{entity_to_remove}%'))
             remove_row = cursor.fetchone()
 
-            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
-                           (f'%{entity_to_keep}%',))
+            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE matter_id = %s AND status = %s AND canonical_name LIKE %s LIMIT 1',
+                           (matter_id, 'active', f'%{entity_to_keep}%'))
             keep_row = cursor.fetchone()
 
             if not remove_row:
@@ -626,22 +652,23 @@ JSON response:"""
 
         elif action == 'delete':
             entity_name = parsed.get('entity_name', '')
+            matter_id = _get_matter_id()
 
-            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
-                           (f'%{entity_name}%',))
+            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE matter_id = %s AND status = %s AND canonical_name LIKE %s LIMIT 1',
+                           (matter_id, 'active', f'%{entity_name}%'))
             row = cursor.fetchone()
 
             if not row:
                 return jsonify({'success': False, 'error': f'Entity "{entity_name}" not found'})
 
             entity_id = row['id']
-            cursor.execute('DELETE FROM kg_edges WHERE source_entity_id = %s OR target_entity_id = %s',
-                           (entity_id, entity_id))
+            cursor.execute('DELETE FROM kg_edges WHERE matter_id = %s AND (source_entity_id = %s OR target_entity_id = %s)',
+                           (matter_id, entity_id, entity_id))
             cursor.execute(
                 'DELETE FROM kg_mentions WHERE entity_id = %s', (entity_id,))
             cursor.execute(
                 'DELETE FROM kg_aliases WHERE entity_id = %s', (entity_id,))
-            cursor.execute('DELETE FROM kg_entities WHERE id = %s', (entity_id,))
+            cursor.execute('DELETE FROM kg_entities WHERE id = %s AND matter_id = %s', (entity_id, matter_id))
             exp.conn.commit()
 
             return jsonify({
@@ -656,9 +683,9 @@ JSON response:"""
 
             entity_id = str(uuid.uuid4())
             cursor.execute('''
-                INSERT INTO kg_entities (id, type, canonical_name, properties, confidence, status, created_at, updated_at)
-                VALUES (%s, %s, %s, '{}', 'confirmed', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ''', (entity_id, entity_type, name))
+                INSERT INTO kg_entities (id, matter_id, type, canonical_name, properties, confidence, status, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, '{}', 'confirmed', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ''', (entity_id, _get_matter_id(), entity_type, name))
             exp.conn.commit()
 
             return jsonify({
@@ -672,13 +699,14 @@ JSON response:"""
             source_name = parsed.get('source', '')
             target_name = parsed.get('target', '')
             relation = parsed.get('relation', 'related_to')
+            matter_id = _get_matter_id()
 
-            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
-                           (f'%{source_name}%',))
+            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE matter_id = %s AND status = %s AND canonical_name LIKE %s LIMIT 1',
+                           (matter_id, 'active', f'%{source_name}%'))
             source_row = cursor.fetchone()
 
-            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
-                           (f'%{target_name}%',))
+            cursor.execute('SELECT id, canonical_name FROM kg_entities WHERE matter_id = %s AND status = %s AND canonical_name LIKE %s LIMIT 1',
+                           (matter_id, 'active', f'%{target_name}%'))
             target_row = cursor.fetchone()
 
             if not source_row:
@@ -688,9 +716,9 @@ JSON response:"""
 
             edge_id = str(uuid.uuid4())
             cursor.execute('''
-                INSERT INTO kg_edges (id, source_entity_id, target_entity_id, relation_type, confidence, properties, created_at)
-                VALUES (%s, %s, %s, %s, 'confirmed', '{}', CURRENT_TIMESTAMP)
-            ''', (edge_id, source_row['id'], target_row['id'], relation))
+                INSERT INTO kg_edges (id, matter_id, source_entity_id, target_entity_id, relation_type, confidence, properties, created_at)
+                VALUES (%s, %s, %s, %s, %s, 'confirmed', '{}', CURRENT_TIMESTAMP)
+            ''', (edge_id, matter_id, source_row['id'], target_row['id'], relation))
             exp.conn.commit()
 
             return jsonify({
@@ -702,16 +730,17 @@ JSON response:"""
         elif action == 'change_type':
             entity_name = parsed.get('entity_name', '')
             new_type = parsed.get('new_type', '')
+            matter_id = _get_matter_id()
 
-            cursor.execute('SELECT id, canonical_name, type FROM kg_entities WHERE canonical_name LIKE %s LIMIT 1',
-                           (f'%{entity_name}%',))
+            cursor.execute('SELECT id, canonical_name, type FROM kg_entities WHERE matter_id = %s AND status = %s AND canonical_name LIKE %s LIMIT 1',
+                           (matter_id, 'active', f'%{entity_name}%'))
             row = cursor.fetchone()
 
             if not row:
                 return jsonify({'success': False, 'error': f'Entity "{entity_name}" not found'})
 
-            cursor.execute('UPDATE kg_entities SET type = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s',
-                           (new_type, row['id']))
+            cursor.execute('UPDATE kg_entities SET type = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s AND matter_id = %s',
+                           (new_type, row['id'], matter_id))
             exp.conn.commit()
 
             return jsonify({
@@ -738,8 +767,14 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
-def _find_duplicates(entities: List[Dict], threshold: float = 0.75) -> List[Dict]:
-    """Find potential duplicate entities using fuzzy matching."""
+def _find_duplicates(entities: List[Dict], threshold: float = 0.75,
+                     max_per_type: int = 500) -> List[Dict]:
+    """Find potential duplicate entities using fuzzy matching.
+
+    Uses a cheap length-based pre-filter to avoid O(n²) SequenceMatcher calls
+    on large groups.  Groups exceeding *max_per_type* are skipped entirely
+    (e.g. Facts) because pairwise comparison is too expensive.
+    """
     duplicates = []
     seen_pairs = set()
 
@@ -753,11 +788,24 @@ def _find_duplicates(entities: List[Dict], threshold: float = 0.75) -> List[Dict
 
     for entity_type, group in by_type.items():
         n = len(group)
+        # Skip huge groups (e.g. Fact) — too many pairs
+        if n > max_per_type:
+            continue
+
         for i in range(n):
             for j in range(i + 1, n):
                 e1, e2 = group[i], group[j]
                 name1 = e1.get('canonical_name', '')
                 name2 = e2.get('canonical_name', '')
+
+                # Quick length-ratio pre-filter — strings with very
+                # different lengths can never exceed the threshold.
+                len1, len2 = len(name1), len(name2)
+                if len1 == 0 or len2 == 0:
+                    continue
+                length_ratio = min(len1, len2) / max(len1, len2)
+                if length_ratio < threshold:
+                    continue
 
                 # Skip if already seen
                 pair_key = tuple(sorted([e1['id'], e2['id']]))
@@ -800,20 +848,22 @@ def api_find_duplicates():
         exp = get_exporter()
         cursor = exp._get_cursor()
 
-        # Get all entities
+        # Get active entities for this matter only
+        matter_id = _get_matter_id()
         if entity_type:
             cursor.execute('''
                 SELECT id, canonical_name, type
                 FROM kg_entities
-                WHERE type = %s
+                WHERE matter_id = %s AND status = 'active' AND type = %s
                 ORDER BY canonical_name
-            ''', (entity_type,))
+            ''', (matter_id, entity_type))
         else:
             cursor.execute('''
                 SELECT id, canonical_name, type
                 FROM kg_entities
+                WHERE matter_id = %s AND status = 'active'
                 ORDER BY type, canonical_name
-            ''')
+            ''', (matter_id,))
 
         entities = [dict(row) for row in cursor.fetchall()]
 
@@ -931,21 +981,22 @@ def api_timeline():
     try:
         exp = get_exporter()
         cursor = exp._get_cursor()
+        matter_id = _get_matter_id()
 
-        # Get Date entities
+        # Get Date entities for this matter
         cursor.execute('''
             SELECT e.id, e.canonical_name, e.type, e.properties
             FROM kg_entities e
-            WHERE e.type = 'Date'
+            WHERE e.matter_id = %s AND e.status = 'active' AND e.type = 'Date'
             ORDER BY e.canonical_name
-        ''')
+        ''', (matter_id,))
         date_entities = [dict(row) for row in cursor.fetchall()]
 
-        # Get facts with dates (deadlines, key_terms with dates)
+        # Get facts with dates for this matter
         cursor.execute('''
             SELECT e.id, e.canonical_name, e.type, e.properties
             FROM kg_entities e
-            WHERE e.type = 'Fact'
+            WHERE e.matter_id = %s AND e.status = 'active' AND e.type = 'Fact'
             AND (
                 e.properties::text LIKE '%%"fact_type": "deadline"%%'
                 OR e.properties::text LIKE '%%"fact_type": "key_term"%%'
@@ -953,7 +1004,7 @@ def api_timeline():
                 OR e.canonical_name ILIKE '%%deadline%%'
             )
             LIMIT %s
-        ''', (limit,))
+        ''', (matter_id, limit))
         fact_entities = [dict(row) for row in cursor.fetchall()]
 
         # Build timeline entries
@@ -963,7 +1014,7 @@ def api_timeline():
             parsed = _parse_date(entity['canonical_name'])
             props = entity.get('properties') or {}
 
-            # Get related entities
+            # Get related entities for this matter
             cursor.execute('''
                 SELECT DISTINCT e2.canonical_name, e2.type, ed.relation_type
                 FROM kg_edges ed
@@ -971,9 +1022,9 @@ def api_timeline():
                     (ed.source_entity_id = %s AND ed.target_entity_id = e2.id)
                     OR (ed.target_entity_id = %s AND ed.source_entity_id = e2.id)
                 )
-                WHERE e2.type != 'Date'
+                WHERE ed.matter_id = %s AND e2.type != 'Date'
                 LIMIT 10
-            ''', (entity['id'], entity['id']))
+            ''', (entity['id'], entity['id'], matter_id))
             related = [{'name': r['canonical_name'], 'type': r['type'], 'relation': r['relation_type']}
                        for r in cursor.fetchall()]
 
@@ -1030,29 +1081,32 @@ def api_export():
         exp = get_exporter()
         cursor = exp._get_cursor()
 
-        # Get all entities
+        matter_id = _get_matter_id()
+
+        # Get all entities for this matter
         cursor.execute('''
             SELECT id, canonical_name, type, properties, confidence
             FROM kg_entities
-            WHERE type != 'Fact' OR %s
+            WHERE matter_id = %s AND status = 'active' AND (type != 'Fact' OR %s)
             ORDER BY type, canonical_name
-        ''', (include_facts,))
+        ''', (matter_id, include_facts))
         entities = [dict(row) for row in cursor.fetchall()]
 
-        # Get all edges
+        # Get all edges for this matter
         cursor.execute('''
             SELECT e.id, e.source_entity_id, e.target_entity_id, e.relation_type, e.properties,
                    src.canonical_name as source_name, tgt.canonical_name as target_name
             FROM kg_edges e
             JOIN kg_entities src ON e.source_entity_id = src.id
             JOIN kg_entities tgt ON e.target_entity_id = tgt.id
-        ''')
+            WHERE e.matter_id = %s
+        ''', (matter_id,))
         edges = [dict(row) for row in cursor.fetchall()]
 
         if format_type == 'json':
             # Full JSON export
             return jsonify({
-                'matter': _matter_name,
+                'matter': _get_matter_id(),
                 'entities': entities,
                 'edges': edges,
                 'stats': {
@@ -1092,7 +1146,7 @@ def api_export():
                 zip_buffer.getvalue(),
                 mimetype='application/zip',
                 headers={
-                    'Content-Disposition': f'attachment; filename={_matter_name}_export.zip'}
+                    'Content-Disposition': f'attachment; filename={_get_matter_id()}_export.zip'}
             )
 
         elif format_type == 'graphml':
@@ -1112,8 +1166,8 @@ def api_export():
 
             # Add nodes
             for e in entities:
-                eid = e['id'].replace('-', '_')
-                name = e['canonical_name'].replace('&', '&amp;').replace(
+                eid = str(e['id']).replace('-', '_')
+                name = str(e['canonical_name']).replace('&', '&amp;').replace(
                     '<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
                 graphml.append(f'    <node id="{eid}">')
                 graphml.append(f'      <data key="name">{name}</data>')
@@ -1122,11 +1176,12 @@ def api_export():
 
             # Add edges
             for edge in edges:
-                src = edge['source_entity_id'].replace('-', '_')
-                tgt = edge['target_entity_id'].replace('-', '_')
-                rel = edge['relation_type']
+                src = str(edge['source_entity_id']).replace('-', '_')
+                tgt = str(edge['target_entity_id']).replace('-', '_')
+                rel = str(edge['relation_type'])
+                rel_escaped = rel.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 graphml.append(f'    <edge source="{src}" target="{tgt}">')
-                graphml.append(f'      <data key="relation">{rel}</data>')
+                graphml.append(f'      <data key="relation">{rel_escaped}</data>')
                 graphml.append(f'    </edge>')
 
             graphml.append('  </graph>')
@@ -1136,7 +1191,7 @@ def api_export():
                 '\n'.join(graphml),
                 mimetype='application/xml',
                 headers={
-                    'Content-Disposition': f'attachment; filename={_matter_name}.graphml'}
+                    'Content-Disposition': f'attachment; filename={_get_matter_id()}.graphml'}
             )
 
         else:
@@ -1237,12 +1292,14 @@ def api_analytics():
         exp = get_exporter()
         cursor = exp._get_cursor()
 
-        # Get entities
-        cursor.execute('SELECT id, canonical_name, type FROM kg_entities')
+        matter_id = _get_matter_id()
+
+        # Get entities for this matter
+        cursor.execute('SELECT id, canonical_name, type FROM kg_entities WHERE matter_id = %s AND status = %s', (matter_id, 'active'))
         entities = {row['id']: dict(row) for row in cursor.fetchall()}
 
-        # Get edges
-        cursor.execute('SELECT source_entity_id, target_entity_id FROM kg_edges')
+        # Get edges for this matter
+        cursor.execute('SELECT source_entity_id, target_entity_id FROM kg_edges WHERE matter_id = %s', (matter_id,))
         edges = [dict(row) for row in cursor.fetchall()]
 
         # Build adjacency
@@ -1365,33 +1422,35 @@ def api_shortest_path():
         exp = get_exporter()
         cursor = exp._get_cursor()
 
-        # Get entities
-        cursor.execute('SELECT id, canonical_name, type FROM kg_entities')
-        entities = {row['id']: dict(row) for row in cursor.fetchall()}
+        matter_id = _get_matter_id()
+
+        # Get entities for this matter
+        cursor.execute('SELECT id, canonical_name, type FROM kg_entities WHERE matter_id = %s AND status = %s', (matter_id, 'active'))
+        entities = {str(row['id']): dict(row) for row in cursor.fetchall()}
 
         if source_id not in entities:
             return jsonify({'error': f'Source entity {source_id} not found'}), 404
         if target_id not in entities:
             return jsonify({'error': f'Target entity {target_id} not found'}), 404
 
-        # Get edges with relation info
+        # Get edges with relation info for this matter
         cursor.execute('''
             SELECT id, source_entity_id, target_entity_id, relation_type
-            FROM kg_edges
-        ''')
+            FROM kg_edges WHERE matter_id = %s
+        ''', (matter_id,))
         edges = [dict(row) for row in cursor.fetchall()]
 
         # Build undirected adjacency with edge info
         # node -> [(neighbor, edge_id, relation)]
         adj: Dict[str, List[Tuple[str, str, str]]] = {}
         for edge in edges:
-            src, tgt = edge['source_entity_id'], edge['target_entity_id']
+            src, tgt = str(edge['source_entity_id']), str(edge['target_entity_id'])
             if src not in adj:
                 adj[src] = []
             if tgt not in adj:
                 adj[tgt] = []
-            adj[src].append((tgt, edge['id'], edge['relation_type']))
-            adj[tgt].append((src, edge['id'], edge['relation_type']))
+            adj[src].append((tgt, str(edge['id']), edge['relation_type']))
+            adj[tgt].append((src, str(edge['id']), edge['relation_type']))
 
         # BFS to find shortest path
         from collections import deque
@@ -1597,16 +1656,17 @@ def api_graph_summary():
     try:
         exp = get_exporter()
         cursor = exp._get_cursor()
+        matter_id = _get_matter_id()
 
         # Get key entities by importance
         cursor.execute('''
             SELECT e.id, e.canonical_name, e.type, e.properties, e.confidence,
-                   (SELECT COUNT(*) FROM kg_edges WHERE source_entity_id = e.id OR target_entity_id = e.id) as degree
+                   (SELECT COUNT(*) FROM kg_edges WHERE matter_id = %s AND (source_entity_id = e.id OR target_entity_id = e.id)) as degree
             FROM kg_entities e
-            WHERE e.type IN ('Organization', 'Person', 'Document')
+            WHERE e.matter_id = %s AND e.status = 'active' AND e.type IN ('Organization', 'Person', 'Document')
             ORDER BY degree DESC
             LIMIT %s
-        ''', (max_entities,))
+        ''', (matter_id, matter_id, max_entities))
         key_entities = [dict(row) for row in cursor.fetchall()]
 
         # Get key relationships
@@ -1616,10 +1676,10 @@ def api_graph_summary():
             FROM kg_edges e
             JOIN kg_entities src ON e.source_entity_id = src.id
             JOIN kg_entities tgt ON e.target_entity_id = tgt.id
-            WHERE src.type IN ('Organization', 'Person') OR tgt.type IN ('Organization', 'Person')
+            WHERE e.matter_id = %s AND (src.type IN ('Organization', 'Person') OR tgt.type IN ('Organization', 'Person'))
             ORDER BY e.created_at DESC
             LIMIT 50
-        ''')
+        ''', (matter_id,))
         key_relationships = [dict(row) for row in cursor.fetchall()]
 
         # Get key facts if requested
@@ -1628,10 +1688,10 @@ def api_graph_summary():
             cursor.execute('''
                 SELECT canonical_name, properties
                 FROM kg_entities
-                WHERE type = 'Fact'
+                WHERE matter_id = %s AND status = 'active' AND type = 'Fact'
                 ORDER BY created_at DESC
                 LIMIT 30
-            ''')
+            ''', (matter_id,))
             for row in cursor.fetchall():
                 props = json.loads(
                     row['properties']) if row['properties'] else {}
@@ -1642,14 +1702,14 @@ def api_graph_summary():
 
         # Get money entities
         cursor.execute('''
-            SELECT canonical_name, properties FROM kg_entities WHERE type = 'Money' LIMIT 20
-        ''')
+            SELECT canonical_name, properties FROM kg_entities WHERE matter_id = %s AND status = 'active' AND type = 'Money' LIMIT 20
+        ''', (matter_id,))
         money_entities = [dict(row) for row in cursor.fetchall()]
 
         # Get dates
         cursor.execute('''
-            SELECT canonical_name FROM kg_entities WHERE type = 'Date' LIMIT 20
-        ''')
+            SELECT canonical_name FROM kg_entities WHERE matter_id = %s AND status = 'active' AND type = 'Date' LIMIT 20
+        ''', (matter_id,))
         date_entities = [row['canonical_name'] for row in cursor.fetchall()]
 
         # Build summary prompt
@@ -1726,7 +1786,9 @@ def api_relationship_analysis():
         exp = get_exporter()
         cursor = exp._get_cursor()
 
-        # Get all edges with entity info
+        matter_id = _get_matter_id()
+
+        # Get all edges with entity info for this matter
         cursor.execute('''
             SELECT e.relation_type,
                    e.source_entity_id, e.target_entity_id,
@@ -1734,7 +1796,8 @@ def api_relationship_analysis():
             FROM kg_edges e
             LEFT JOIN kg_entities src ON e.source_entity_id = src.id
             LEFT JOIN kg_entities tgt ON e.target_entity_id = tgt.id
-        ''')
+            WHERE e.matter_id = %s
+        ''', (matter_id,))
         edges = [dict(row) for row in cursor.fetchall()]
 
         # Analyze relationship types
@@ -1773,13 +1836,14 @@ def api_relationship_analysis():
                     'relationships': [{'source': e[0], 'target': e[1], 'relation': e[2]} for e in pair_edges]
                 })
 
-        # Get entity type distribution
+        # Get entity type distribution for this matter
         cursor.execute('''
             SELECT type, COUNT(*) as count
             FROM kg_entities
+            WHERE matter_id = %s AND status = 'active'
             GROUP BY type
             ORDER BY count DESC
-        ''')
+        ''', (matter_id,))
         entity_type_dist = [dict(row) for row in cursor.fetchall()]
 
         return jsonify({
@@ -1942,18 +2006,20 @@ def api_importance():
         exp = get_exporter()
         cursor = exp._get_cursor()
 
-        # Get entities
+        matter_id = _get_matter_id()
+
+        # Get entities for this matter
         if entity_type:
-            cursor.execute('SELECT id, canonical_name, type, confidence FROM kg_entities WHERE type = %s',
-                           (entity_type,))
+            cursor.execute('SELECT id, canonical_name, type, confidence FROM kg_entities WHERE matter_id = %s AND status = %s AND type = %s',
+                           (matter_id, 'active', entity_type))
         else:
             cursor.execute(
-                'SELECT id, canonical_name, type, confidence FROM kg_entities')
+                'SELECT id, canonical_name, type, confidence FROM kg_entities WHERE matter_id = %s AND status = %s', (matter_id, 'active'))
         entities = {row['id']: dict(row) for row in cursor.fetchall()}
 
-        # Get edges
+        # Get edges for this matter
         cursor.execute(
-            'SELECT source_entity_id, target_entity_id, relation_type FROM kg_edges')
+            'SELECT source_entity_id, target_entity_id, relation_type FROM kg_edges WHERE matter_id = %s', (matter_id,))
         edges = [dict(row) for row in cursor.fetchall()]
 
         # Calculate metrics
@@ -1971,21 +2037,25 @@ def api_importance():
                 in_degree[tgt] += 1
                 relation_diversity[tgt].add(rel)
 
-        # Get mention counts
+        # Get mention counts for entities in this matter
         cursor.execute('''
-            SELECT entity_id, COUNT(*) as mention_count
-            FROM kg_mentions
-            GROUP BY entity_id
-        ''')
+            SELECT m.entity_id, COUNT(*) as mention_count
+            FROM kg_mentions m
+            JOIN kg_entities e ON m.entity_id = e.id
+            WHERE e.matter_id = %s
+            GROUP BY m.entity_id
+        ''', (matter_id,))
         mention_counts = {row['entity_id']: row['mention_count']
                           for row in cursor.fetchall()}
 
-        # Get alias counts (more aliases = more prominent)
+        # Get alias counts for entities in this matter
         cursor.execute('''
-            SELECT entity_id, COUNT(*) as alias_count
-            FROM kg_aliases
-            GROUP BY entity_id
-        ''')
+            SELECT a.entity_id, COUNT(*) as alias_count
+            FROM kg_aliases a
+            JOIN kg_entities e ON a.entity_id = e.id
+            WHERE e.matter_id = %s
+            GROUP BY a.entity_id
+        ''', (matter_id,))
         alias_counts = {row['entity_id']: row['alias_count']
                         for row in cursor.fetchall()}
 
@@ -2186,16 +2256,18 @@ def api_clusters():
         exp = get_exporter()
         cursor = exp._get_cursor()
 
-        # Get entities
+        matter_id = _get_matter_id()
+
+        # Get entities for this matter
         if entity_type:
             cursor.execute(
-                'SELECT id, canonical_name, type FROM kg_entities WHERE type = %s', (entity_type,))
+                'SELECT id, canonical_name, type FROM kg_entities WHERE matter_id = %s AND status = %s AND type = %s', (matter_id, 'active', entity_type))
         else:
-            cursor.execute('SELECT id, canonical_name, type FROM kg_entities')
+            cursor.execute('SELECT id, canonical_name, type FROM kg_entities WHERE matter_id = %s AND status = %s', (matter_id, 'active'))
         entities = {row['id']: dict(row) for row in cursor.fetchall()}
 
-        # Get edges
-        cursor.execute('SELECT source_entity_id, target_entity_id FROM kg_edges')
+        # Get edges for this matter
+        cursor.execute('SELECT source_entity_id, target_entity_id FROM kg_edges WHERE matter_id = %s', (matter_id,))
         edges = [dict(row) for row in cursor.fetchall()]
 
         # Build adjacency and find components
