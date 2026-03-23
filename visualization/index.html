@@ -1,9 +1,8 @@
 <!doctype html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Knowledge Graph</title>
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&family=Rethink+Sans:wght@400;500;600;700;800&family=Roboto:wght@300;400;500;700&family=Open+Sans:wght@300;400;500;600;700&family=Lato:wght@300;400;700&family=Montserrat:wght@300;400;500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&family=Merriweather:wght@300;400;700&family=Lora:wght@400;500;600;700&family=PT+Serif:wght@400;700&family=Libre+Baskerville:wght@400;700&display=swap"
@@ -92,8 +91,10 @@
         flex-shrink: 0;
         padding: 6px;
         min-width: 36px;
-        min-height: 36px;
+        min-height: auto;
         justify-content: center;
+        border: 0px none !important;
+        background-color: transparent !important;
       }
 
       .sidebar-scroll {
@@ -871,26 +872,14 @@
           flex-shrink: 0;
           white-space: nowrap;
         }
-      }
 
-      @media (max-width: 576px) {
-        .graph-toolbar,
-        #controls,
-        #layout-container,
-        #layout-container {
-          left: 12px;
-        }
-        #legend{
-          right: 12px;
-        }
-
-        .modal-box {
-          max-width: 96vw !important;
-          min-width: auto !important;
+        .drawerCloseBtnBox {
           width: 100%;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
         }
       }
-
       .view-btn {
         padding: 8px 15px;
         background: transparent;
@@ -1201,7 +1190,7 @@
         font-size: 12px;
         color: #6b7280;
       }
-      
+
       #nl-edit-btn:disabled {
         color: #6b7280;
         cursor: not-allowed;
@@ -1336,6 +1325,24 @@
       .export-option {
         font-size: 12px;
       }
+
+      @media (max-width: 576px) {
+        .graph-toolbar,
+        #controls,
+        #layout-container,
+        #layout-container {
+          left: 12px;
+        }
+        #legend {
+          right: 12px;
+        }
+
+        .modal-box {
+          max-width: 96vw !important;
+          min-width: auto !important;
+          width: 100%;
+        }
+      }
     </style>
   </head>
 
@@ -1343,33 +1350,35 @@
     <div id="app">
       <div id="sidebar">
         <div class="sidebar-content">
-          <button
-          type="button"
-          id="sidebar-close-btn"
-          class="sidebar-close-btn control-btn"
-          aria-label="Close menu"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
-        </button>
           <div
             class="sidebar-section"
             style="border-radius: 0px; border-top: 0px none"
           >
-            <h2 style="margin: 0px 0px 10px 0px">Ask a Question</h2>
+            <h2 class="drawerCloseBtnBox" style="margin: 0px 0px 10px 0px">
+              Ask a Question
+              <button
+                type="button"
+                id="sidebar-close-btn"
+                class="sidebar-close-btn control-btn"
+                aria-label="Close menu"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </h2>
             <div id="query-container">
               <textarea
                 id="query-input"
@@ -1401,9 +1410,7 @@
                   data-query="What obligations are mentioned?"
                   >Obligations</span
                 >
-                <span
-                  class="sample-query"
-                  data-query="Summarize the key terms"
+                <span class="sample-query" data-query="Summarize the key terms"
                   >Key terms</span
                 >
               </div>
@@ -1519,7 +1526,7 @@
       <div id="graph-container">
         <div id="loading">
           <div class="spinner"></div>
-          <div style="color: #6b7280;">Loading knowledge graph...</div>
+          <div style="color: #6b7280">Loading knowledge graph...</div>
         </div>
         <svg id="graph"></svg>
 
@@ -1940,16 +1947,6 @@
         Reference: "#8b5cf6",
         Fact: "#6b7280",
       };
-      // Set matter label from URL param (the parent app provides the display name)
-      const matterLabel = document.getElementById('matter-label');
-      if (matterLabel) {
-          const params = new URLSearchParams(window.location.search);
-          const matterName = params.get('matter_name');
-          matterLabel.textContent = matterName || '';
-      }
-
-      // Create type filters
-      createTypeFilters();
 
       // Confidence ring colors
       const CONFIDENCE_COLORS = {
@@ -1973,6 +1970,13 @@
           // Update stats
           document.getElementById("stat-docs").textContent =
             fullGraphData.stats.total_documents || "-";
+
+          // Matter label from URL (parent app); optional element in sidebar
+          const matterLabel = document.getElementById("matter-label");
+          if (matterLabel) {
+            const params = new URLSearchParams(window.location.search);
+            matterLabel.textContent = params.get("matter_name") || "";
+          }
 
           // Create type filters
           createTypeFilters();
@@ -2332,8 +2336,8 @@
         const actionsDiv = document.createElement("div");
         actionsDiv.style.cssText = "margin-top: 15px; display: flex; gap: 8px;";
         actionsDiv.innerHTML = `
-                <button class="btn btn-secondary" style="flex:1; padding: 8px; font-size: 12px;" onclick="showEditModal(window._selectedEntity)">Edit</button>
-                <button class="btn btn-secondary" style="flex:1; padding: 8px; font-size: 12px;" onclick="showCreateEdgeModal(window._selectedEntity)">+ Link</button>
+                <button class="btn outlineBtn" style="flex:1; padding: 8px; font-size: 12px;" onclick="showEditModal(window._selectedEntity)">Edit</button>
+                <button class="btn whiteBtn" style="flex:1; padding: 8px; font-size: 12px;" onclick="showCreateEdgeModal(window._selectedEntity)">+ Link</button>
             `;
         details.appendChild(actionsDiv);
 
@@ -2633,10 +2637,7 @@
 
         if (closeBtn) {
           closeBtn.addEventListener("click", () => {
-            if (
-              mq.matches &&
-              app.classList.contains("sidebar-drawer-open")
-            ) {
+            if (mq.matches && app.classList.contains("sidebar-drawer-open")) {
               setOpen(false);
             }
           });
@@ -3435,7 +3436,7 @@
                     </div>
                     <div class="modal-actions" style="margin-top: 15px;">
                         <button class="btn outlineBtn" onclick="closeModal()">Cancel</button>
-                        <button class="btn primaryNewBtn onclick="mergeSelectedDuplicates()">Merge Selected</button>
+                        <button class="btn primaryNewBtn" onclick="mergeSelectedDuplicates()">Merge Selected</button>
                     </div>
                 `;
         } catch (error) {
@@ -3916,16 +3917,6 @@
         } catch (error) {
           alert("Export failed: " + error.message);
         }
-      }
-      function downloadBlob(blob, filename) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
       }
 
       // Start
