@@ -880,6 +880,165 @@
           align-items: center;
         }
       }
+
+      /* Matter at a Glance */
+      #matter-glance {
+        margin-top: 12px;
+        padding: 12px;
+        background: #f9fafb;
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+      }
+
+      #matter-glance h3 {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        color: #6b7280;
+        margin-bottom: 10px;
+        letter-spacing: 0.5px;
+      }
+
+      .glance-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .glance-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 10px;
+        cursor: pointer;
+        transition: border-color 0.15s;
+      }
+
+      .glance-card:hover {
+        border-color: #7c3aed;
+      }
+
+      .glance-card .glance-count {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #1f2937;
+      }
+
+      .glance-card .glance-label {
+        font-size: 0.75rem;
+        color: #6b7280;
+        margin-top: 2px;
+      }
+
+      .glance-highlights {
+        margin-top: 10px;
+      }
+
+      .glance-highlights .highlight-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 0;
+        font-size: 0.82rem;
+        color: #374151;
+        border-bottom: 1px solid #f3f4f6;
+      }
+
+      .glance-highlights .highlight-item:last-child {
+        border-bottom: none;
+      }
+
+      .highlight-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      /* Timeline tab in main area */
+      #timeline-panel {
+        display: none;
+        position: absolute;
+        inset: 0;
+        background: #ffffff;
+        z-index: 5;
+        overflow-y: auto;
+        padding: 24px;
+      }
+
+      #timeline-panel.active {
+        display: block;
+      }
+
+      .timeline-entry {
+        display: flex;
+        gap: 16px;
+        padding: 14px 0;
+        border-bottom: 1px solid #f3f4f6;
+      }
+
+      .timeline-date {
+        min-width: 100px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #374151;
+        padding-top: 2px;
+      }
+
+      .timeline-content {
+        flex: 1;
+      }
+
+      .timeline-type-badge {
+        display: inline-block;
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-weight: 500;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+
+      .timeline-desc {
+        font-size: 0.85rem;
+        color: #4b5563;
+        line-height: 1.4;
+      }
+
+      .timeline-entities {
+        margin-top: 4px;
+        font-size: 0.75rem;
+        color: #9ca3af;
+      }
+
+      .timeline-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+
+      .timeline-header h2 {
+        font-size: 1.1rem;
+        color: #1f2937;
+        margin: 0;
+        text-transform: none;
+      }
+
+      .timeline-close-btn {
+        background: none;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        padding: 6px 12px;
+        cursor: pointer;
+        font-size: 0.82rem;
+        color: #6b7280;
+      }
+
+      .timeline-close-btn:hover {
+        background: #f3f4f6;
+      }
       .view-btn {
         padding: 8px 15px;
         background: transparent;
@@ -1386,33 +1545,17 @@
                 placeholder="Ask anything about the case..."
               ></textarea>
               <button id="query-btn" class="primaryNewBtn">
-                <span>Query Graph</span>
+                <span>Ask</span>
               </button>
               <div class="sample-queries">
-                <span
-                  class="sample-query"
-                  data-query="Who are the main parties in this case?"
-                  >Main parties</span
-                >
-                <span
-                  class="sample-query"
-                  data-query="What is the dispute about?"
-                  >About dispute</span
-                >
-                <span class="sample-query" data-query="What are the key dates?"
-                  >Key dates</span
-                >
-                <span class="sample-query" data-query="Tell me about Gulfstream"
-                  >About Gulfstream</span
-                >
-                <span
-                  class="sample-query"
-                  data-query="What obligations are mentioned?"
-                  >Obligations</span
-                >
-                <span class="sample-query" data-query="Summarize the key terms"
-                  >Key terms</span
-                >
+                <span class="sample-query" data-query="Summarize this matter in 3-5 key points">Summarize matter</span>
+                <span class="sample-query" data-query="Who are the main parties and what are their roles?">Key parties</span>
+                <span class="sample-query" data-query="List all deadlines and important dates">All deadlines</span>
+                <span class="sample-query" data-query="What are the key obligations and duties?">Obligations</span>
+                <span class="sample-query" data-query="What are the potential risks or liabilities?">Risks & liabilities</span>
+                <span class="sample-query" data-query="What rulings or findings have been made?">Rulings & findings</span>
+                <span class="sample-query" data-query="What financial amounts or damages are mentioned?">Damages & amounts</span>
+                <span class="sample-query" data-query="List all allegations and claims">Claims & allegations</span>
               </div>
             </div>
             <div id="query-answer">
@@ -1420,9 +1563,34 @@
               <div id="answer-text"></div>
               <div id="query-stats"></div>
             </div>
+            <!-- Matter at a Glance -->
+            <div id="matter-glance">
+              <h3>Matter at a Glance</h3>
+              <div class="glance-grid">
+                <div class="glance-card" data-filter="Person">
+                  <div class="glance-count" id="glance-people">-</div>
+                  <div class="glance-label">People</div>
+                </div>
+                <div class="glance-card" data-filter="Organization">
+                  <div class="glance-count" id="glance-orgs">-</div>
+                  <div class="glance-label">Organizations</div>
+                </div>
+                <div class="glance-card" data-filter="Document">
+                  <div class="glance-count" id="glance-docs">-</div>
+                  <div class="glance-label">Documents</div>
+                </div>
+                <div class="glance-card" data-filter="Date">
+                  <div class="glance-count" id="glance-dates">-</div>
+                  <div class="glance-label">Key Dates</div>
+                </div>
+              </div>
+              <div class="glance-highlights" id="glance-highlights">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
           </div>
           <div class="sidebar-scroll">
-            <h2 class="sectionTitle">Search Entities</h2>
+            <h2 class="sectionTitle">Search</h2>
             <div id="search-container">
               <div class="search-input-row">
                 <input
@@ -1459,11 +1627,11 @@
             <h2 class="sectionTitle">Statistics</h2>
             <div id="stats">
               <div class="statBox">
-                <span class="stat-label">Visible Nodes</span>
+                <span class="stat-label">Items Shown</span>
                 <span class="stat-value" id="stat-nodes">-</span>
               </div>
               <div class="statBox">
-                <span class="stat-label">Visible Links</span>
+                <span class="stat-label">Connections</span>
                 <span class="stat-value" id="stat-links">-</span>
               </div>
               <div class="statBox">
@@ -1472,7 +1640,7 @@
               </div>
             </div>
 
-            <h2 class="sectionTitle">Filter by Type</h2>
+            <h2 class="sectionTitle">Filter by Category</h2>
             <div id="type-filters" class="filter-group"></div>
 
             <div id="entity-details">
@@ -1483,12 +1651,12 @@
             </div>
 
             <div id="facts-panel">
-              <h2 class="sectionTitle">Related Facts</h2>
+              <h2 class="sectionTitle">Key Findings</h2>
               <div id="facts-list"></div>
             </div>
 
             <div id="nl-edit-container">
-              <h2 class="sectionTitle">Natural Language Edit</h2>
+              <h2 class="sectionTitle">Quick Edit</h2>
               <input
                 class="input-styled"
                 type="text"
@@ -1496,7 +1664,7 @@
                 placeholder="e.g. rename CITIOM to Channel IT..."
               />
               <button id="nl-edit-btn" class="primaryNewBtn">
-                Execute Command
+                Run Command
               </button>
               <div class="nl-edit-examples">
                 <span class="nl-edit-example" data-cmd="rename"
@@ -1526,7 +1694,7 @@
       <div id="graph-container">
         <div id="loading">
           <div class="spinner"></div>
-          <div style="color: #6b7280">Loading knowledge graph...</div>
+          <div style="color: #6b7280">Loading matter analysis...</div>
         </div>
         <svg id="graph"></svg>
 
@@ -1557,8 +1725,9 @@
             </svg>
           </button>
           <div id="view-toggle">
-            <button class="view-btn active" data-view="full">Full Graph</button>
-            <button class="view-btn" data-view="query">Query Results</button>
+            <button class="view-btn active" data-view="full">Full View</button>
+            <button class="view-btn" data-view="query">Results</button>
+            <button class="view-btn" data-view="timeline">Timeline</button>
           </div>
         </div>
 
@@ -1622,7 +1791,7 @@
               <path d="M19 12h-7" />
               <path d="M19 16h-5" />
             </svg>
-            Show Facts
+            Show Findings
           </button>
           <button class="control-btn whiteBtn" id="btn-edit">
             <svg
@@ -1855,6 +2024,18 @@
           </div>
         </div>
 
+
+        <!-- Timeline Panel (first-class tab) -->
+        <div id="timeline-panel">
+          <div class="timeline-header">
+            <h2 id="timeline-tab-title">Timeline</h2>
+            <button class="timeline-close-btn" onclick="document.querySelector('[data-view=full]').click()">Back to Map</button>
+          </div>
+          <div id="timeline-tab-content">
+            <div style="text-align: center; padding: 40px; color: #9ca3af;">Loading timeline...</div>
+          </div>
+        </div>
+
         <div id="tooltip">
           <h4 id="tooltip-name"></h4>
           <div class="type" id="tooltip-type"></div>
@@ -1863,15 +2044,15 @@
         <div id="layout-container">
           <label>Layout</label>
           <select id="layout-select">
-            <option value="force">Force-Directed</option>
-            <option value="cluster">Cluster by Type</option>
+            <option value="force">Relationship Map</option>
+            <option value="cluster">Group by Category</option>
             <option value="radial">Radial</option>
             <option value="hierarchical">Hierarchical</option>
           </select>
         </div>
 
         <div id="legend">
-          <h4>Confidence</h4>
+          <h4>Data Confidence</h4>
           <div class="legend-item">
             <div class="legend-ring" style="border-color: #34a853"></div>
             <span>Confirmed</span>
@@ -2590,7 +2771,7 @@
             answerBox.classList.add("active");
           } finally {
             btn.disabled = false;
-            btn.innerHTML = "<span>Query Graph</span>";
+            btn.innerHTML = "<span>Ask</span>";
           }
         });
 
@@ -2676,6 +2857,15 @@
               .forEach((b) => b.classList.remove("active"));
             btn.classList.add("active");
             currentView = btn.dataset.view;
+
+              // Toggle timeline panel visibility
+              const timelinePanel = document.getElementById("timeline-panel");
+              if (btn.dataset.view === "timeline") {
+                timelinePanel.classList.add("active");
+                loadTimelineTab();
+              } else {
+                timelinePanel.classList.remove("active");
+              }
             updateGraph();
           });
         });
@@ -2721,20 +2911,21 @@
               fullGraphData.links.push(...newLinks);
               factsLoaded = true;
               createTypeFilters();
+              populateGlance();
             } catch (e) {
               console.error("Failed to load facts:", e);
             } finally {
               factsBtn.disabled = false;
-              factsBtn.textContent = showFacts ? "Hide Facts" : "Show Facts";
+              factsBtn.textContent = showFacts ? "Hide Findings" : "Show Findings";
             }
           }
 
           if (showFacts) {
             activeFilters.add("Fact");
-            factsBtn.textContent = "Hide Facts";
+            factsBtn.textContent = "Hide Findings";
           } else {
             activeFilters.delete("Fact");
-            factsBtn.textContent = "Show Facts";
+            factsBtn.textContent = "Show Findings";
           }
 
           const checkbox = document.getElementById("filter-Fact");
@@ -2788,7 +2979,9 @@
         // Timeline button
         document
           .getElementById("btn-timeline")
-          .addEventListener("click", showTimelineModal);
+          .addEventListener("click", () => {
+            document.querySelector('[data-view="timeline"]').click();
+          });
 
         // Clusters button
         document
@@ -2868,7 +3061,7 @@
             resultDiv.className = "error";
           } finally {
             btn.disabled = false;
-            btn.textContent = "Execute Command";
+            btn.textContent = "Run Command";
           }
         });
 
@@ -3094,7 +3287,7 @@
         const title = document.getElementById("modal-title");
         const content = document.getElementById("modal-content");
 
-        title.textContent = "Edit Entity";
+        title.textContent = "Edit Item";
         content.innerHTML = `
                 <div class="form-group">
                     <label>Name</label>
@@ -3107,7 +3300,7 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Confidence</label>
+                    <label>Data Confidence</label>
                     <select id="edit-confidence">
                         <option value="confirmed" ${entity.confidence === "confirmed" ? "selected" : ""}>Confirmed</option>
                         <option value="extracted" ${entity.confidence === "extracted" ? "selected" : ""}>Extracted</option>
@@ -3130,7 +3323,7 @@
         const title = document.getElementById("modal-title");
         const content = document.getElementById("modal-content");
 
-        title.textContent = "Create Entity";
+        title.textContent = "Add Item";
         content.innerHTML = `
                 <div class="form-group">
                     <label>Name</label>
@@ -3157,7 +3350,7 @@
         const title = document.getElementById("modal-title");
         const content = document.getElementById("modal-content");
 
-        title.textContent = "Create Relationship";
+        title.textContent = "Add Connection";
         content.innerHTML = `
                 <div class="form-group">
                     <label>From</label>
@@ -3601,7 +3794,7 @@
         const title = document.getElementById("modal-title");
         const content = document.getElementById("modal-content");
 
-        title.textContent = "Finding Clusters...";
+        title.textContent = "Finding Threads...";
         content.innerHTML =
           '<div class="spinner" style="margin: 20px auto;"></div>';
         modal.classList.add("active");
@@ -3614,7 +3807,7 @@
             throw new Error(data.error);
           }
 
-          title.textContent = `Entity Clusters (${data.total_clusters} groups)`;
+          title.textContent = `Matter Threads (${data.total_clusters} groups)`;
 
           content.innerHTML = `
                     <div style="margin-bottom: 15px; color: #6b7280;">
@@ -3679,7 +3872,7 @@
           }
 
           const analytics = data.analytics;
-          title.textContent = "Graph Analytics";
+          title.textContent = "Key Players & Documents";
 
           function renderSection(label, items) {
             if (!items || items.length === 0)
@@ -3707,14 +3900,14 @@
                         <span><strong style="color: #10b981;">${data.total_edges}</strong> edges</span>
                     </div>
                     <div style="max-height: 450px; overflow-y: auto;">
-                        <h3 style="font-size: 13px; color: #7c3aed; text-transform: uppercase; margin: 0 0 8px;">PageRank</h3>
-                        ${renderSection("PageRank", analytics.pagerank)}
+                        <h3 style="font-size: 13px; color: #7c3aed; text-transform: uppercase; margin: 0 0 8px;">Influence Score</h3>
+                        ${renderSection("Influence Score", analytics.pagerank)}
 
-                        <h3 style="font-size: 13px; color: #7c3aed; text-transform: uppercase; margin: 18px 0 8px;">Degree Centrality</h3>
-                        ${renderSection("Degree Centrality", analytics.degree_centrality)}
+                        <h3 style="font-size: 13px; color: #7c3aed; text-transform: uppercase; margin: 18px 0 8px;">Connection Count</h3>
+                        ${renderSection("Connection Count", analytics.degree_centrality)}
 
-                        <h3 style="font-size: 13px; color: #7c3aed; text-transform: uppercase; margin: 18px 0 8px;">Betweenness Centrality</h3>
-                        ${renderSection("Betweenness", analytics.betweenness)}
+                        <h3 style="font-size: 13px; color: #7c3aed; text-transform: uppercase; margin: 18px 0 8px;">Bridging Score</h3>
+                        ${renderSection("Bridging Score", analytics.betweenness)}
                     </div>
                     <div class="modal-actions" style="margin-top: 15px;">
                         <button class="btn outlineBtn" onclick="closeModal()">Close</button>
@@ -3737,22 +3930,22 @@
         pathSourceId = null;
         pathTargetId = null;
 
-        title.textContent = "Find Shortest Path";
+        title.textContent = "Trace Connection";
         content.innerHTML = `
                 <div class="form-group">
-                    <label>Source Entity</label>
+                    <label>From (person, org, or document)</label>
                     <input class="input-styled" type="text" id="path-source-search" placeholder="Search for source entity..." autocomplete="off">
                     <div id="path-source-results" style="margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
                 </div>
                 <div class="form-group">
-                    <label>Target Entity</label>
+                    <label>To (person, org, or document)</label>
                     <input class="input-styled" type="text" id="path-target-search" placeholder="Search for target entity..." autocomplete="off">
                     <div id="path-target-results" style="margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
                 </div>
                 <div id="path-result-area"></div>
                 <div class="modal-actions" style="margin-top: 15px;">
                     <button class="btn outlineBtn" onclick="closeModal()">Cancel</button>
-                    <button class="btn primaryNewBtn" id="btn-find-path-go">Find Path</button>
+                    <button class="btn primaryNewBtn" id="btn-find-path-go">Trace Connection</button>
                 </div>
             `;
         modal.classList.add("active");
@@ -3955,6 +4148,100 @@
           }
         } catch (error) {
           alert("Export failed: " + error.message);
+        }
+      }
+
+
+
+      // ========== MATTER AT A GLANCE ==========
+      function populateGlance() {
+        if (!fullGraphData || !fullGraphData.stats) return;
+        const counts = fullGraphData.stats.full_entity_counts || {};
+        document.getElementById("glance-people").textContent = counts["Person"] || 0;
+        document.getElementById("glance-orgs").textContent = counts["Organization"] || 0;
+        document.getElementById("glance-docs").textContent = counts["Document"] || counts["Documents"] || fullGraphData.stats.total_documents || 0;
+        document.getElementById("glance-dates").textContent = counts["Date"] || 0;
+
+        // Show top 5 most-connected entities as highlights
+        const highlights = document.getElementById("glance-highlights");
+        if (fullGraphData.nodes && fullGraphData.nodes.length > 0) {
+          const sorted = [...fullGraphData.nodes]
+            .sort((a, b) => (b.connections || 0) - (a.connections || 0))
+            .slice(0, 5);
+          highlights.innerHTML = sorted.map(n => `
+            <div class="highlight-item">
+              <div class="highlight-dot" style="background: ${TYPE_COLORS[n.type] || '#999'}"></div>
+              <span>${n.name}</span>
+              <span style="margin-left: auto; color: #9ca3af; font-size: 0.75rem;">${n.type}</span>
+            </div>
+          `).join("");
+        }
+
+        // Click on glance cards to filter the graph
+        document.querySelectorAll(".glance-card").forEach(card => {
+          card.addEventListener("click", () => {
+            const type = card.dataset.filter;
+            activeFilters.clear();
+            activeFilters.add(type);
+            // Uncheck all type filter checkboxes, then check the target one
+            document.querySelectorAll("#type-filters input").forEach(cb => {
+              cb.checked = cb.id === "filter-" + type;
+            });
+            updateGraph();
+          });
+        });
+      }
+
+      // ========== TIMELINE TAB ==========
+      let timelineTabLoaded = false;
+
+      async function loadTimelineTab() {
+        if (timelineTabLoaded) return;
+        const container = document.getElementById("timeline-tab-content");
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #9ca3af;">Loading timeline...</div>';
+
+        try {
+          const response = await fetch(`${API_BASE}/api/timeline?limit=200`);
+          const data = await response.json();
+          const events = data.timeline || [];
+
+          if (events.length === 0) {
+            container.innerHTML = '<div style="text-align: center; padding: 40px; color: #9ca3af;">No timeline events found for this matter.</div>';
+            return;
+          }
+
+          document.getElementById("timeline-tab-title").textContent = `Timeline (${events.length} events)`;
+
+          const typeColors = {
+            date: "#10b981",
+            deadline: "#ef4444",
+            key_term: "#7c3aed",
+            fact: "#6b7280",
+            obligation: "#f59e0b",
+            ruling: "#3b82f6",
+            finding: "#3b82f6",
+            allegation: "#f97316",
+          };
+
+          container.innerHTML = events.map(ev => {
+            const dateStr = ev.date_parsed || "No date";
+            const color = typeColors[ev.type] || "#6b7280";
+            const entities = (ev.related_entities || []).map(e => e.name).join(", ");
+            return `
+              <div class="timeline-entry">
+                <div class="timeline-date">${dateStr}</div>
+                <div class="timeline-content">
+                  <span class="timeline-type-badge" style="background: ${color}20; color: ${color};">${ev.type}</span>
+                  <div class="timeline-desc">${ev.description || ""}</div>
+                  ${entities ? `<div class="timeline-entities">Related: ${entities}</div>` : ""}
+                </div>
+              </div>
+            `;
+          }).join("");
+
+          timelineTabLoaded = true;
+        } catch (e) {
+          container.innerHTML = '<div style="text-align: center; padding: 40px; color: #ef4444;">Failed to load timeline.</div>';
         }
       }
 
