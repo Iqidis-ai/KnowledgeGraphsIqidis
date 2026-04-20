@@ -16,6 +16,7 @@ Performance optimizations:
 - Global rate limiter for API safety
 """
 import os
+import re
 import sys
 import threading
 import time
@@ -77,6 +78,32 @@ class GlobalRateLimiter:
 
 # Global rate limiter instance
 _global_rate_limiter = GlobalRateLimiter()
+
+
+# Patterns for entity names that are clearly extraction noise — page
+# headers/footers, timestamps, watermarks, raw chunk indices. Checked before
+# dedup so the 2,640-item problem on 14-document matters doesn't reproduce.
+_NOISE_PATTERNS = [
+    re.compile(r'^\s*page\s+\d+', re.IGNORECASE),
+    re.compile(r'^\s*\d{1,2}:\d{2}(:\d{2})?\s*(am|pm)?\s*$', re.IGNORECASE),
+    re.compile(r'^\s*[\u00A9\u00AE\u2122]'),  # ©, ®, ™ prefixes
+    re.compile(r'^\s*chunk[_\s]?\d+\s*$', re.IGNORECASE),
+    re.compile(r'^[\W_]+$'),  # entirely punctuation/whitespace
+    re.compile(r'^(key_term|fact_type|obligation|deadline)\s*:', re.IGNORECASE),
+]
+
+
+def _is_noise_entity_name(name: str) -> bool:
+    """Return True if `name` looks like extraction noise we should drop."""
+    if not name:
+        return True
+    stripped = name.strip()
+    if len(stripped) < 2 or len(stripped) > 200:
+        return True
+    for pat in _NOISE_PATTERNS:
+        if pat.search(stripped):
+            return True
+    return False
 
 
 class EntityNormalizer:
@@ -209,12 +236,30 @@ class EntityNormalizer:
         return claimed_type
 
     @staticmethod
+    def normalize_date(name: str) -> str:
+        """Normalize a date string to ISO-8601 (YYYY-MM-DD) for dedup.
+
+        Falls back to the stripped original if parsing fails so the caller
+        never loses data on unparseable inputs (e.g. "upon closing").
+        """
+        if not name:
+            return ""
+        try:
+            from dateutil import parser
+            dt = parser.parse(name.strip(), fuzzy=True)
+            return dt.strftime('%Y-%m-%d')
+        except Exception:
+            return name.strip()
+
+    @staticmethod
     def normalize_name(name: str, entity_type: str = None) -> str:
         """Normalize entity name based on type."""
         if entity_type == 'Organization':
             return EntityNormalizer.normalize_org_name(name)
         elif entity_type == 'Person':
             return EntityNormalizer.normalize_person_name(name)
+        elif entity_type == 'Date':
+            return EntityNormalizer.normalize_date(name)
         else:
             return name.strip()
 
@@ -877,13 +922,30 @@ class ExtractionPipeline:
         entity_map: Dict[str, str] = {}
         pending_aliases: list = []
 
-        # --- Deduplicate: keep first occurrence per name ---
+        # --- Dedup: collapse case/format variants within this batch ---
+        # Skip watermark/page-header/timestamp noise and use a normalized
+        # lowercase dedup key so variants like "Dec 31, 2018" + "December 31,
+        # 2018" (both normalize to ISO-8601) or "john smith" + "John Smith"
+        # merge into one entity within the same extraction run. Cross-document
+        # dedup is still handled by the pre-loaded name_index lookup below.
+        # dedup_lookup records every raw surface form seen so that the
+        # relation-resolution pass can find an entity_id by any of its
+        # originally-extracted strings, even after we kept only one.
+        dedup_lookup: Dict[str, str] = {}  # raw name -> dedup_key
         unique_entities: Dict[str, ExtractedEntity] = {}
         for entity in entities:
             if not entity.name or len(entity.name) < 2:
                 continue
-            if entity.name not in unique_entities:
-                unique_entities[entity.name] = entity
+            if _is_noise_entity_name(entity.name):
+                continue
+            raw_name = entity.name
+            dedup_key = EntityNormalizer.normalize_name(
+                raw_name, entity.type).lower()
+            if not dedup_key:
+                continue
+            dedup_lookup[raw_name] = dedup_key
+            if dedup_key not in unique_entities:
+                unique_entities[dedup_key] = entity
 
         total = len(unique_entities)
         _print(f"  {len(entities)} raw → {total} unique entities to resolve")
@@ -986,6 +1048,18 @@ class ExtractionPipeline:
         if pending_aliases:
             self.db.add_aliases_batch(pending_aliases)
 
+        # Back-fill entity_map so every raw-name surface form that collapsed
+        # into the same dedup_key resolves to the same entity_id. Without this
+        # the relation pass (_store_relations) drops edges whose source/target
+        # name was a collapsed variant (e.g. "Dec 31, 2018" → "2018-12-31").
+        for raw_name, dedup_key in dedup_lookup.items():
+            kept = unique_entities.get(dedup_key)
+            if kept is None:
+                continue
+            kept_id = entity_map.get(kept.name)
+            if kept_id and raw_name not in entity_map:
+                entity_map[raw_name] = kept_id
+
         _print(f"  Resolved: {len(entity_map)} entities "
                f"({len(new_entity_batch)} new, {len(pending_aliases)} aliases)")
         return entity_map
@@ -1052,16 +1126,19 @@ class ExtractionPipeline:
     def _store_relations(self, relations: List, entity_map: Dict[str, str], doc_id: str):
         """Store extracted relations in the graph using batch operations."""
         all_edges = []
+        skipped = 0
 
         for rel in relations:
             source_id = entity_map.get(rel.source_name)
             target_id = entity_map.get(rel.target_name)
 
             if not source_id or not target_id:
-                source_id = self._find_entity_by_name(
-                    rel.source_name, entity_map)
-                target_id = self._find_entity_by_name(
-                    rel.target_name, entity_map)
+                if not source_id:
+                    source_id = self._find_entity_by_name(
+                        rel.source_name, entity_map)
+                if not target_id:
+                    target_id = self._find_entity_by_name(
+                        rel.target_name, entity_map)
 
             if source_id and target_id:
                 all_edges.append(Edge.create(
@@ -1072,10 +1149,13 @@ class ExtractionPipeline:
                     confidence="extracted",
                     provenance_doc_id=doc_id
                 ))
+            else:
+                skipped += 1
 
         if all_edges:
             self.db.add_edges_batch(all_edges)
-        _print(f"  Stored {len(all_edges)} relations")
+        _print(f"  Stored {len(all_edges)} relations"
+               + (f" (skipped {skipped} with unresolved endpoints)" if skipped else ""))
 
     def _store_facts(self, facts: List, entity_map: Dict[str, str], doc_id: str):
         """Store extracted facts as Fact entities using batch operations."""
@@ -1087,9 +1167,13 @@ class ExtractionPipeline:
                 fact_props = fact.properties if isinstance(
                     fact.properties, dict) else {}
 
+                # Keep the human-readable fact text as the canonical name.
+                # fact_type is retained in properties for filtering/display categorization.
+                fact_text = (fact.text or "").strip()
+                fact_name = fact_text if len(fact_text) <= 120 else fact_text[:117] + "..."
                 fact_entity = Entity.create(
                     type="Fact",
-                    canonical_name=f"{fact.fact_type}: {fact.text[:50]}...",
+                    canonical_name=fact_name,
                     properties={"fact_type": fact.fact_type,
                                 "full_text": fact.text, **fact_props},
                     confidence="extracted"
