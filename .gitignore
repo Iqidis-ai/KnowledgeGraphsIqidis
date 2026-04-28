@@ -1,5 +1,6 @@
 # Confidential data - DO NOT COMMIT
 matters/
+citiom_v_gulfstream
 
 # Python
 __pycache__/
@@ -44,6 +45,15 @@ env/
 # Logs
 *.log
 logs/
+
+# Generated databases and vector indexes
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.faiss
+*.pkl
+*.npy
 
 # Temporary files
 *.tmp

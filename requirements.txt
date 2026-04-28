@@ -13,9 +13,8 @@ faiss-cpu>=1.8.0
 numpy>=1.26.0
 
 # API layer
-fastapi>=0.115.0
-uvicorn>=0.32.0
-pydantic>=2.9.0
+Flask>=3.0.0
+flask-cors>=5.0.0
 
 # Utilities
 python-dotenv>=1.0.0
