@@ -30,6 +30,7 @@ class PostgreSQLDatabase:
         self._ensure_doc_id_column()
         self._ensure_document_chunks_table()
         self._ensure_embeddings_table()
+        self._ensure_layout_tables()
 
     def _new_connection(self):
         """Create a new PostgreSQL connection with TCP keepalives."""
@@ -161,6 +162,50 @@ class PostgreSQLDatabase:
                     vector BYTEA NOT NULL,
                     dimension INTEGER,
                     created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            self.conn.commit()
+        except Exception:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+
+    def _ensure_layout_tables(self):
+        """Create entity_layout and matter_layout_meta if missing."""
+        try:
+            cursor = self._get_cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS entity_layout (
+                    matter_id    text NOT NULL,
+                    entity_id    text NOT NULL,
+                    x            double precision NOT NULL,
+                    y            double precision NOT NULL,
+                    importance   double precision NOT NULL,
+                    PRIMARY KEY (matter_id, entity_id)
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_layout_bbox_x
+                ON entity_layout (matter_id, x)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_layout_bbox_y
+                ON entity_layout (matter_id, y)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_layout_importance
+                ON entity_layout (matter_id, importance DESC)
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS matter_layout_meta (
+                    matter_id      text PRIMARY KEY,
+                    status         text NOT NULL,
+                    computed_at    timestamptz,
+                    entity_count   integer,
+                    algorithm      text NOT NULL DEFAULT 'forceatlas2',
+                    progress       real,
+                    error          text
                 )
             """)
             self.conn.commit()
