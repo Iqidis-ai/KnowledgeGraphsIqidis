@@ -23,6 +23,8 @@ from google import genai
 # Import from core
 from ..core import KnowledgeGraph, GEMINI_API_KEY, POSTGRES_URL, get_postgres_url
 from ..core.storage.postgres_database import PostgreSQLDatabase
+from ..core.layout.layout_service import LayoutService
+from ..core.layout.layout_repository import LayoutRepository
 from ..visualization.postgres_graph_exporter import PostgreSQLGraphExporter
 
 
@@ -208,6 +210,138 @@ def api_graph():
     graph_data['stats']['type_colors'] = stats['type_colors']
 
     return jsonify(graph_data)
+
+
+# ==================== Layout v2 ====================
+
+@api.route('/graph/layout/status')
+def api_layout_status():
+	matter_id = request.args.get('matter_id')
+	if not matter_id:
+		return jsonify({"error": "matter_id required"}), 400
+	svc = LayoutService(matter_id)
+	meta = svc.status()
+	if meta is None:
+		return jsonify({"error": "not_found"}), 404
+	if meta.get("computed_at"):
+		meta["computed_at"] = meta["computed_at"].isoformat()
+	return jsonify(meta)
+
+
+@api.route('/graph/layout/compute', methods=['POST'])
+def api_layout_compute():
+	matter_id = request.args.get('matter_id')
+	if not matter_id:
+		return jsonify({"error": "matter_id required"}), 400
+	svc = LayoutService(matter_id)
+	meta = svc.trigger_compute()
+	if meta and meta.get("computed_at"):
+		meta["computed_at"] = meta["computed_at"].isoformat()
+	return jsonify(meta or {"status": "computing", "progress": 0.0})
+
+
+@api.route('/graph/viewport')
+def api_graph_viewport():
+	matter_id = request.args.get('matter_id')
+	if not matter_id:
+		return jsonify({"error": "matter_id required"}), 400
+
+	try:
+		x_min = float(request.args['x_min'])
+		x_max = float(request.args['x_max'])
+		y_min = float(request.args['y_min'])
+		y_max = float(request.args['y_max'])
+	except (KeyError, ValueError):
+		return jsonify({"error": "x_min, x_max, y_min, y_max required as floats"}), 400
+
+	min_importance = float(request.args.get('min_importance', 0.0))
+	limit = int(request.args.get('limit', 2000))
+	types_param = request.args.get('types')
+	type_filter = set(types_param.split(',')) if types_param else None
+
+	# Use cached KG db if already initialised; otherwise open a lightweight
+	# PostgreSQLDatabase directly (avoids VectorStore UUID validation errors
+	# for test matter_ids and makes the viewport endpoint self-contained).
+	if matter_id in _instances:
+		db = _instances[matter_id]['kg'].db
+	else:
+		db = PostgreSQLDatabase(get_postgres_url(), matter_id)
+	repo = LayoutRepository(db, matter_id)
+	rows = repo.query_viewport(x_min, x_max, y_min, y_max, min_importance, limit)
+
+	if not rows:
+		return jsonify({"nodes": [], "edges": [], "truncated": False, "total_in_viewport": 0})
+
+	entity_ids = [r["entity_id"] for r in rows]
+
+	# Hydrate node metadata. kg_entities.id is UUID; entity_layout.entity_id
+	# is text. Compare with id::text = ANY(%s).
+	# Schema note: name column is 'canonical_name' (not 'name').
+	cur = db._get_cursor()
+	cur.execute("""
+		SELECT id::text AS id, canonical_name, type, properties
+		FROM kg_entities
+		WHERE matter_id::text = %s AND id::text = ANY(%s)
+	""", (matter_id, entity_ids))
+	rows_meta = cur.fetchall()
+	if rows_meta and isinstance(rows_meta[0], dict):
+		meta_by_id = {
+			r["id"]: {"name": r["canonical_name"], "type": r["type"], "properties": r["properties"]}
+			for r in rows_meta
+		}
+	else:
+		meta_by_id = {r[0]: {"name": r[1], "type": r[2], "properties": r[3]} for r in rows_meta}
+
+	nodes = []
+	kept_ids = set()
+	for r in rows:
+		m = meta_by_id.get(r["entity_id"])
+		if not m:
+			continue
+		if type_filter and m["type"] not in type_filter:
+			continue
+		nodes.append({
+			"entity_id": r["entity_id"],
+			"name": m["name"],
+			"type": m["type"],
+			"x": r["x"],
+			"y": r["y"],
+			"importance": r["importance"],
+			"properties": m["properties"],
+		})
+		kept_ids.add(r["entity_id"])
+
+	edges = []
+	if kept_ids:
+		kept_list = list(kept_ids)
+		# Schema note: relation column is 'relation_type' (not 'relation').
+		cur.execute("""
+			SELECT source_entity_id::text, target_entity_id::text, relation_type, confidence
+			FROM kg_edges
+			WHERE matter_id::text = %s
+			  AND source_entity_id::text = ANY(%s)
+			  AND target_entity_id::text = ANY(%s)
+		""", (matter_id, kept_list, kept_list))
+		rows_e = cur.fetchall()
+		if rows_e and isinstance(rows_e[0], dict):
+			for r in rows_e:
+				edges.append({
+					"source": r["source_entity_id"],
+					"target": r["target_entity_id"],
+					"type": r["relation_type"],
+					"confidence": r["confidence"],
+				})
+		else:
+			for r in rows_e:
+				edges.append({"source": r[0], "target": r[1], "type": r[2], "confidence": r[3]})
+
+	truncated = len(rows) >= limit
+	return jsonify({
+		"nodes": nodes,
+		"edges": edges,
+		"truncated": truncated,
+		"total_in_viewport": len(rows),
+	})
 
 
 # ==================== Search ====================
