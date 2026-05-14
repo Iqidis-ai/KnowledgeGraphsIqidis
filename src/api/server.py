@@ -31,6 +31,51 @@ from ..visualization.postgres_graph_exporter import PostgreSQLGraphExporter
 # Create API blueprint
 api = Blueprint('api', __name__, url_prefix='/api')
 
+# Default per-type node caps for the type_quota top-K strategy.
+# Tuned for legal contract graphs: dense entity types (Persons, Orgs, Money)
+# get generous caps; noisier types (Documents, Dates) get tight caps.
+DEFAULT_TYPE_QUOTAS = {
+	"Person": 100,
+	"Organization": 100,
+	"Document": 25,
+	"Date": 25,
+	"Money": 100,
+	"Location": 50,
+	"Reference": 30,
+	"Clause": 30,
+	"Fact": 50,
+}
+
+
+def _apply_top_k(
+	nodes: list,
+	strategy: str,
+	top_k: Optional[int],
+	per_type: dict,
+) -> list:
+	"""Filter a list of node dicts (each with a 'type' and 'importance' field)
+	using the chosen top-K strategy. Returns a new list, never mutates input.
+	"""
+	if strategy == "none":
+		return nodes
+	if strategy == "degree":
+		if top_k is None:
+			return nodes
+		return sorted(nodes, key=lambda n: n["importance"], reverse=True)[:top_k]
+	# type_quota (default)
+	by_type: dict = {}
+	for n in nodes:
+		by_type.setdefault(n.get("type", "Unknown"), []).append(n)
+	kept = []
+	for t, group in by_type.items():
+		cap = per_type.get(t, top_k if top_k is not None else len(group))
+		group_sorted = sorted(group, key=lambda n: n["importance"], reverse=True)
+		kept.extend(group_sorted[:cap])
+	kept.sort(key=lambda n: n["importance"], reverse=True)
+	if top_k is not None:
+		kept = kept[:top_k]
+	return kept
+
 
 # Per-matter instance cache — avoids global singleton swapping that caused
 # data spillover when multiple matters were accessed concurrently.
@@ -259,6 +304,16 @@ def api_graph_viewport():
 	types_param = request.args.get('types')
 	type_filter = set(types_param.split(',')) if types_param else None
 
+	# Top-K filtering params
+	top_k_param = request.args.get('top_k')
+	top_k = int(top_k_param) if top_k_param else None
+	top_k_strategy = request.args.get('top_k_strategy', 'type_quota')
+	per_type_param = request.args.get('top_k_per_type')
+	try:
+		per_type = json.loads(per_type_param) if per_type_param else DEFAULT_TYPE_QUOTAS
+	except (TypeError, ValueError):
+		per_type = DEFAULT_TYPE_QUOTAS
+
 	# Use cached KG db if already initialised; otherwise open a lightweight
 	# PostgreSQLDatabase directly (avoids VectorStore UUID validation errors
 	# for test matter_ids and makes the viewport endpoint self-contained).
@@ -270,7 +325,8 @@ def api_graph_viewport():
 	rows = repo.query_viewport(x_min, x_max, y_min, y_max, min_importance, limit)
 
 	if not rows:
-		return jsonify({"nodes": [], "edges": [], "truncated": False, "total_in_viewport": 0})
+		return jsonify({"nodes": [], "edges": [], "truncated": False, "total_in_viewport": 0,
+						"top_k_applied": False, "total_before_top_k": 0})
 
 	entity_ids = [r["entity_id"] for r in rows]
 
@@ -293,7 +349,6 @@ def api_graph_viewport():
 		meta_by_id = {r[0]: {"name": r[1], "type": r[2], "properties": r[3]} for r in rows_meta}
 
 	nodes = []
-	kept_ids = set()
 	for r in rows:
 		m = meta_by_id.get(r["entity_id"])
 		if not m:
@@ -309,7 +364,20 @@ def api_graph_viewport():
 			"importance": r["importance"],
 			"properties": m["properties"],
 		})
-		kept_ids.add(r["entity_id"])
+
+	# --- Top-K filter ---
+	total_before_top_k = len(nodes)
+	# Apply if strategy is not 'none' AND there is something to cap
+	should_filter = (
+		top_k_strategy != "none"
+		and (top_k is not None or bool(per_type))
+	)
+	if should_filter:
+		nodes = _apply_top_k(nodes, top_k_strategy, top_k, per_type)
+	top_k_applied = len(nodes) < total_before_top_k
+
+	# Rebuild kept_ids from the (possibly filtered) nodes list
+	kept_ids = {n["entity_id"] for n in nodes}
 
 	edges = []
 	if kept_ids:
@@ -341,6 +409,8 @@ def api_graph_viewport():
 		"edges": edges,
 		"truncated": truncated,
 		"total_in_viewport": len(rows),
+		"top_k_applied": top_k_applied,
+		"total_before_top_k": total_before_top_k,
 	})
 
 
