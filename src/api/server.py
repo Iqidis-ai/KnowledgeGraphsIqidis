@@ -216,6 +216,56 @@ def api_extract_from_iqidis():
         return jsonify({'error': str(e)}), 500
 
 
+@api.route('/document/<doc_id>', methods=['DELETE'])
+def api_delete_document(doc_id: str):
+    """Remove a document and all KG data sourced from it.
+
+    Mentions, edges with provenance from this doc, and entities that
+    became orphaned (no remaining mentions) are tombstoned/removed.
+    Layout is marked stale so the next graph open recomputes.
+
+    Query params:
+        matter_id (required) — matter the document belongs to.
+    """
+    matter_id = request.args.get('matter_id')
+    if not matter_id:
+        return jsonify({"error": "matter_id required"}), 400
+    if not doc_id:
+        return jsonify({"error": "doc_id required"}), 400
+
+    try:
+        # Reuse cached KG instance if already loaded; otherwise instantiate
+        # the DB layer directly without booting the heavy VectorStore (we
+        # don't need it for deletion).
+        if matter_id in _instances:
+            db = _instances[matter_id]['kg'].db
+        else:
+            db = PostgreSQLDatabase(get_postgres_url(), matter_id)
+
+        db.delete_document(doc_id)
+
+        # Mark layout stale so the next view triggers a recompute.
+        # The existing entity_layout rows stay (cheap), but matter_layout_meta
+        # is updated so /layout/status returns 'stale' on next call.
+        try:
+            LayoutRepository(db, matter_id).set_status("stale")
+        except Exception as exc:  # noqa: BLE001 — layout staleness is best-effort
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to mark layout stale for matter %s: %s", matter_id, exc
+            )
+
+        return jsonify({
+            "success": True,
+            "doc_id": doc_id,
+            "matter_id": matter_id,
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 # ==================== Statistics ====================
 
 @api.route('/stats')

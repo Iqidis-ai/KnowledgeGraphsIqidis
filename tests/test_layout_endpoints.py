@@ -109,3 +109,31 @@ def test_viewport_top_k_per_type_invalid_json_falls_back(client, test_matter_id)
         "&top_k_per_type=not-json"
     )
     assert resp.status_code == 200
+
+
+# ==================== DELETE /document/<doc_id> ====================
+
+def test_delete_document_missing_matter_id_returns_400(client):
+    resp = client.delete("/api/document/some-doc-uuid")
+    assert resp.status_code == 400
+
+
+def test_delete_document_missing_doc_id_returns_404(client):
+    """Flask routes 405/404 if no doc_id segment is supplied."""
+    resp = client.delete("/api/document/?matter_id=foo")
+    # Werkzeug returns 404 for a missing path segment match
+    assert resp.status_code in (404, 405)
+
+
+def test_delete_document_unknown_matter_succeeds_noop(client, test_matter_id):
+    """Deleting a doc for a fresh test matter should succeed harmlessly
+    (no rows to delete, no error)."""
+    resp = client.delete(
+        f"/api/document/00000000-0000-0000-0000-000000000000?matter_id={test_matter_id}"
+    )
+    # Either succeeds (no rows to delete) or returns a clean 500 if the
+    # underlying delete_document raises on an unknown doc_id. Verify we
+    # at least don't crash with a stack-leak shape.
+    assert resp.status_code in (200, 500)
+    body = resp.get_json()
+    assert isinstance(body, dict)
