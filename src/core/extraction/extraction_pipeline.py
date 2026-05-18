@@ -379,7 +379,7 @@ class ExtractionPipeline:
         # Step 2: Structural extraction
         _print("\n[2/6] Extracting structural elements...")
         structural = self.structural_extractor.extract(parsed.text)
-        self._store_structural_results(structural, doc_id, parsed.text)
+        self._store_structural_results(structural, doc_id, parsed.text, filename=parsed.filename)
 
         # Step 3: Chunk document
         _print("\n[3/6] Chunking document...")
@@ -486,7 +486,7 @@ class ExtractionPipeline:
         t0 = time.time()
         _print("\n[2/6] Extracting structural elements...")
         structural = self.structural_extractor.extract(parsed.text)
-        self._store_structural_results(structural, doc_id, parsed.text)
+        self._store_structural_results(structural, doc_id, parsed.text, filename=parsed.filename)
         _print(f"  ⏱ Step 2: {time.time() - t0:.1f}s")
 
         t0 = time.time()
@@ -589,7 +589,7 @@ class ExtractionPipeline:
         t0 = time.time()
         _print("\n[2/6] Extracting structural elements...")
         structural = self.structural_extractor.extract(parsed.text)
-        self._store_structural_results(structural, kg_doc_id, parsed.text)
+        self._store_structural_results(structural, kg_doc_id, parsed.text, filename=parsed.filename)
         _print(f"  ⏱ Step 2: {time.time() - t0:.1f}s")
 
         # Step 3: SKIPPED — using pre-computed chunks
@@ -837,62 +837,139 @@ class ExtractionPipeline:
 
         return results
 
-    def _store_structural_results(self, structural: StructuralExtraction, doc_id: str, full_text: str):
-        """Store results from structural extraction using batch operations."""
+    def _store_structural_results(
+        self,
+        structural: StructuralExtraction,
+        doc_id: str,
+        full_text: str,
+        filename: Optional[str] = None,
+    ):
+        """Store results from structural extraction using batch operations.
+
+        Three previously-missing safeguards applied here (M16 + M4 fixes):
+
+        1. Noise filter: party names and defined-term names that match the
+           same noise patterns the LLM-extracted entities go through (page
+           headers, watermarks, raw chunk indices, etc.) are dropped before
+           insertion.
+        2. Cross-document dedup: structural pass now consults the existing
+           entity store by canonical_name (case-insensitive) and emits a
+           Mention/Alias against the existing entity instead of inserting a
+           duplicate. Without this, a 14-doc matter that mentions
+           "Marcus Whitfield" on every cover page produced 14 separate
+           Person entities (M11).
+        3. Document entity uses the source filename (sans extension) as the
+           canonical name instead of `Doc_<uuid>`. The opaque internal id
+           was M4 in the feedback brief.
+        """
         all_entities = []
         all_mentions = []
         all_aliases = []
         embedding_texts = []  # (entity_id, text_for_embedding)
 
-        # Collect parties
-        for party in structural.parties:
-            entity = Entity.create(
-                type="Organization" if any(corp in party.name for corp in [
-                                           'Inc', 'Corp', 'LLC', 'Ltd', 'LLP']) else "Person",
-                canonical_name=party.name,
-                properties={"role": party.role, "source": "structural"},
-                confidence="confirmed"
-            )
+        # Build a {lowercase canonical_name → entity_id} index from existing
+        # entities in this matter. One query, cached for the duration of this
+        # call. Cross-batch dedup against entities created earlier in *this*
+        # structural pass uses batch_seen.
+        existing_by_name: Dict[str, str] = {}
+        try:
+            for ent in self.db.get_all_entities(limit=50000):
+                existing_by_name[ent.canonical_name.strip().lower()] = ent.id
+        except Exception:
+            # If the lookup fails (e.g. db hiccup), fall back to the old
+            # behavior: no cross-doc dedup but still batch-insert. Better to
+            # over-create than to crash the extraction.
+            existing_by_name = {}
+
+        batch_seen: Dict[str, str] = {}
+
+        def _resolve_or_track(canonical_name: str, build_entity) -> Tuple[str, bool]:
+            """Return (entity_id, is_new). Mutates batch_seen on creation."""
+            key = canonical_name.strip().lower()
+            existing_id = existing_by_name.get(key) or batch_seen.get(key)
+            if existing_id is not None:
+                return existing_id, False
+            entity = build_entity()
             all_entities.append(entity)
+            batch_seen[key] = entity.id
+            return entity.id, True
+
+        # Collect parties — skip noise, dedup within batch and against existing
+        for party in structural.parties:
+            if not party.name or _is_noise_entity_name(party.name):
+                continue
+            party_type = "Organization" if any(
+                corp in party.name for corp in ['Inc', 'Corp', 'LLC', 'Ltd', 'LLP']
+            ) else "Person"
+            entity_id, is_new = _resolve_or_track(
+                party.name,
+                lambda: Entity.create(
+                    type=party_type,
+                    canonical_name=party.name,
+                    properties={"role": party.role, "source": "structural"},
+                    confidence="confirmed",
+                ),
+            )
             all_mentions.append(Mention.create(
-                entity_id=entity.id, doc_id=doc_id,
+                entity_id=entity_id, doc_id=doc_id,
                 span_start=party.span_start, span_end=party.span_end,
                 surface_text=party.name,
                 context_snippet=full_text[max(
                     0, party.span_start-100):party.span_end+100]
             ))
             for alias in party.aliases:
-                if alias != party.name:
+                if alias != party.name and not _is_noise_entity_name(alias):
                     all_aliases.append(Alias.create(
-                        entity.id, alias, "defined_term"))
-            embedding_texts.append(
-                (entity.id, f"{party.name} {party.role}"[:500]))
+                        entity_id, alias, "defined_term"))
+            if is_new:
+                embedding_texts.append(
+                    (entity_id, f"{party.name} {party.role}"[:500]))
 
-        # Collect defined terms
+        # Collect defined terms — same dedup + noise treatment
         for term in structural.defined_terms:
-            entity = Entity.create(
-                type="Reference", canonical_name=term.term,
-                properties={"definition": term.definition,
-                            "source": "structural"},
-                confidence="confirmed"
+            if not term.term or _is_noise_entity_name(term.term):
+                continue
+            entity_id, is_new = _resolve_or_track(
+                term.term,
+                lambda: Entity.create(
+                    type="Reference",
+                    canonical_name=term.term,
+                    properties={"definition": term.definition, "source": "structural"},
+                    confidence="confirmed",
+                ),
             )
-            all_entities.append(entity)
             for alias in term.aliases:
-                if alias != term.term:
+                if alias != term.term and not _is_noise_entity_name(alias):
                     all_aliases.append(Alias.create(
-                        entity.id, alias, "defined_term"))
-            embedding_texts.append(
-                (entity.id, f"{term.term} {term.definition}"[:500]))
+                        entity_id, alias, "defined_term"))
+            if is_new:
+                embedding_texts.append(
+                    (entity_id, f"{term.term} {term.definition}"[:500]))
 
-        # Document metadata entity
+        # Document metadata entity — use the filename (sans extension) so
+        # users see "lease-agreement-2024" rather than "Doc_de05e620".
         if structural.document_type != 'unknown':
-            doc_entity = Entity.create(
-                type="Document", canonical_name=f"Doc_{doc_id[:8]}",
-                properties={"document_type": structural.document_type, "case_number": structural.case_number,
-                            "court": structural.court_or_tribunal, "source": "structural"},
-                confidence="confirmed"
+            if filename:
+                doc_name = os.path.splitext(os.path.basename(filename))[0]
+                # An empty stem (e.g. ".pdf") falls back to the legacy form
+                if not doc_name.strip():
+                    doc_name = f"Doc_{doc_id[:8]}"
+            else:
+                doc_name = f"Doc_{doc_id[:8]}"
+            _resolve_or_track(
+                doc_name,
+                lambda: Entity.create(
+                    type="Document",
+                    canonical_name=doc_name,
+                    properties={
+                        "document_type": structural.document_type,
+                        "case_number": structural.case_number,
+                        "court": structural.court_or_tribunal,
+                        "source": "structural",
+                    },
+                    confidence="confirmed",
+                ),
             )
-            all_entities.append(doc_entity)
 
         # Batch insert all at once
         if all_entities:
@@ -902,12 +979,21 @@ class ExtractionPipeline:
         if all_aliases:
             self.db.add_aliases_batch(all_aliases)
 
-        # Batch generate and store embeddings
+        # Batch generate and store embeddings (only for entities we created
+        # in this pass — embeddings for pre-existing entities are already
+        # stored).
         if embedding_texts:
             self._store_entity_embeddings_batch(embedding_texts)
 
+        new_count = len(all_entities)
+        merged_count = (
+            len(structural.parties) + len(structural.defined_terms) - new_count
+        )
         _print(
-            f"  Stored {len(structural.parties)} parties, {len(structural.defined_terms)} defined terms")
+            f"  Stored {len(structural.parties)} parties, "
+            f"{len(structural.defined_terms)} defined terms "
+            f"({new_count} new, {max(merged_count, 0)} merged into existing)"
+        )
 
     def _resolve_and_store_entities(self, entities: List[ExtractedEntity], doc_id: str, full_text: str) -> Dict[str, str]:
         """Resolve extracted entities against existing graph and store.
