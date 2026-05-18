@@ -1261,11 +1261,23 @@ def api_timeline():
         ''', (matter_id, limit))
         fact_entities = [dict(row) for row in cursor.fetchall()]
 
-        # Build timeline entries
+        # Build timeline entries.
+        #
+        # M14 fix: only emit entries that have a parseable date. Previously
+        # any Fact whose canonical_name matched %date% or %deadline% (which
+        # includes free-text sentences like "The 'Effective Date' is the last
+        # signed date below" and case-law citations) was appended with
+        # date_parsed=None, then displayed at the bottom of KEY DATES / the
+        # TIMELINE. Attorneys read those as "a curated chronology entry"
+        # which they aren't.
         timeline = []
 
         for entity in date_entities:
             parsed = _parse_date(entity['canonical_name'])
+            # Date entities with no parseable date are themselves likely
+            # extraction noise (raw strings like "upon closing"). Skip.
+            if not parsed:
+                continue
             props = entity.get('properties') or {}
 
             # Get related entities for this matter
@@ -1294,22 +1306,47 @@ def api_timeline():
 
         for entity in fact_entities:
             props = entity.get('properties') or {}
-            parsed = _parse_date(props.get('due_date', '') or props.get(
-                'date', '') or entity['canonical_name'])
+            raw_date = (
+                props.get('due_date', '')
+                or props.get('date', '')
+                or entity['canonical_name']
+            )
+            parsed = _parse_date(raw_date)
+            # Drop facts that don't have a real date. The loose %date% / %deadline%
+            # LIKE on canonical_name above pulled in narrative sentences; this
+            # gate keeps only entries that actually slot onto a timeline.
+            if not parsed:
+                continue
+            # Long descriptions (full sentences, case-law citations) are not
+            # date entries even if they happen to parse. Cap at 120 chars so
+            # the UI shows a clean date label, not a paragraph.
+            description = entity['canonical_name'][:120]
 
             timeline.append({
                 'id': entity['id'],
-                'date_raw': props.get('due_date', '') or props.get('date', ''),
+                'date_raw': raw_date,
                 'date_parsed': parsed,
                 'type': props.get('fact_type', 'fact'),
-                'description': entity['canonical_name'][:200],
+                'description': description,
                 'related_entities': [],
                 'properties': props
             })
 
-        # Sort by parsed date (entries without dates go at the end)
-        timeline.sort(key=lambda x: (
-            x['date_parsed'] is None, x['date_parsed'] or ''))
+        # Dedup by (parsed date, description) — M13 in the May-15 feedback
+        # showed duplicate "Dec 31, 1962" / "Dec 31, 2009" entries on larger
+        # matters because the same date appears across multiple documents.
+        seen: Dict[Tuple[str, str], bool] = {}
+        deduped = []
+        for t in timeline:
+            key = (t['date_parsed'], t['description'].strip().lower())
+            if key in seen:
+                continue
+            seen[key] = True
+            deduped.append(t)
+        timeline = deduped
+
+        # Sort by parsed date
+        timeline.sort(key=lambda x: x['date_parsed'])
 
         return jsonify({
             'total': len(timeline),
