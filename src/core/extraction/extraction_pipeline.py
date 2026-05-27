@@ -1244,31 +1244,45 @@ class ExtractionPipeline:
                + (f" (skipped {skipped} with unresolved endpoints)" if skipped else ""))
 
     def _store_facts(self, facts: List, entity_map: Dict[str, str], doc_id: str):
-        """Store extracted facts as Fact entities using batch operations."""
+        """Store extracted facts as Fact entities using batch operations.
+
+        Three safeguards added after the May-27 large-matter test surfaced
+        Fact entities as the single biggest contributor to extraction noise:
+
+        1. Skip facts whose text is empty / shorter than 4 chars / matches
+           the noise patterns LLM-emitted entities go through.
+        2. Skip facts that don't link to any real entity. An isolated fact
+           with no `related_entities` is just a free-floating sentence —
+           it shows up in the graph as a degree-0 node and clutters the
+           dense-blob view. Cuts ~30-50% of facts on typical contracts.
+        3. In-batch dedup by normalized text. A 341-doc matter previously
+           created N copies of every recurring clause ("Notices to the
+           Plaintiff shall be sent…"); now collapsed to one Fact entity
+           with edges to every related entity from every occurrence.
+        """
         all_fact_entities = []
         all_edges = []
+        # dedup_key (lowercased + whitespace-normalised) → Fact Entity
+        seen_facts: Dict[str, Entity] = {}
+        dropped_noise = 0
+        dropped_unlinked = 0
+        merged = 0
 
         for fact in facts:
             try:
-                fact_props = fact.properties if isinstance(
-                    fact.properties, dict) else {}
-
-                # Keep the human-readable fact text as the canonical name.
-                # fact_type is retained in properties for filtering/display categorization.
                 fact_text = (fact.text or "").strip()
-                fact_name = fact_text if len(fact_text) <= 120 else fact_text[:117] + "..."
-                fact_entity = Entity.create(
-                    type="Fact",
-                    canonical_name=fact_name,
-                    properties={"fact_type": fact.fact_type,
-                                "full_text": fact.text, **fact_props},
-                    confidence="extracted"
-                )
-                all_fact_entities.append(fact_entity)
+                if not fact_text or len(fact_text) < 4:
+                    dropped_noise += 1
+                    continue
+                if _is_noise_entity_name(fact_text):
+                    dropped_noise += 1
+                    continue
 
-                # Collect edges linking fact to related entities
+                # Resolve related entities first so we can drop unlinked facts
+                # before allocating a Fact Entity for them.
                 related = fact.related_entities if isinstance(
                     fact.related_entities, list) else []
+                related_ids: List[str] = []
                 for entity_ref in related:
                     if isinstance(entity_ref, str):
                         entity_name = entity_ref
@@ -1277,28 +1291,60 @@ class ExtractionPipeline:
                             'name', '') or str(entity_ref)
                     else:
                         continue
-
                     entity_id = entity_map.get(entity_name) or self._find_entity_by_name(
                         entity_name, entity_map)
                     if entity_id:
-                        all_edges.append(Edge.create(
-                            source_entity_id=fact_entity.id,
-                            target_entity_id=entity_id,
-                            relation_type="about",
-                            properties={},
-                            confidence="extracted",
-                            provenance_doc_id=doc_id
-                        ))
+                        related_ids.append(entity_id)
+
+                if not related_ids:
+                    dropped_unlinked += 1
+                    continue
+
+                # Normalised dedup key: lowercase, collapse internal whitespace.
+                dedup_key = " ".join(fact_text.lower().split())
+
+                fact_props = fact.properties if isinstance(
+                    fact.properties, dict) else {}
+
+                fact_entity = seen_facts.get(dedup_key)
+                if fact_entity is None:
+                    fact_name = fact_text if len(fact_text) <= 120 else fact_text[:117] + "..."
+                    fact_entity = Entity.create(
+                        type="Fact",
+                        canonical_name=fact_name,
+                        properties={"fact_type": fact.fact_type,
+                                    "full_text": fact_text, **fact_props},
+                        confidence="extracted"
+                    )
+                    seen_facts[dedup_key] = fact_entity
+                    all_fact_entities.append(fact_entity)
+                else:
+                    merged += 1
+
+                # Dedup edges within this batch so the same (fact, entity)
+                # pair from multiple LLM emissions only stores once.
+                for entity_id in set(related_ids):
+                    all_edges.append(Edge.create(
+                        source_entity_id=fact_entity.id,
+                        target_entity_id=entity_id,
+                        relation_type="about",
+                        properties={},
+                        confidence="extracted",
+                        provenance_doc_id=doc_id
+                    ))
             except Exception as e:
                 _print(f"  Warning: Failed to prepare fact: {e}")
                 continue
 
-        # Batch insert all facts and edges
         if all_fact_entities:
             self.db.add_entities_batch(all_fact_entities)
         if all_edges:
             self.db.add_edges_batch(all_edges)
-        _print(f"  Stored {len(all_fact_entities)} facts")
+        _print(
+            f"  Stored {len(all_fact_entities)} facts "
+            f"(dropped {dropped_noise} noise, {dropped_unlinked} unlinked, "
+            f"merged {merged} duplicates)"
+        )
 
     def _find_entity_by_name(self, name: str, entity_map: Dict[str, str]) -> Optional[str]:
         """Find entity ID by name with fuzzy matching (in-memory only, no DB)."""
