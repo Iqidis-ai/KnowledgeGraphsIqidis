@@ -29,7 +29,7 @@ tiktoken>=0.7.0
 
 # Graph layout (knowledge graph v2 renderer)
 networkx>=3.2
-fa2_modified>=0.3.10
+# fa2_modified>=0.3.10
 
 # Testing
 pytest>=7.4

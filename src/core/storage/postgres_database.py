@@ -584,23 +584,65 @@ class PostgreSQLDatabase:
                        (datetime.now(), doc_id, self.matter_id))
         self.conn.commit()
 
+    def resolve_kg_document_id(self, doc_id: str) -> Optional[str]:
+        """Resolve an Iqidis document id or internal kg_documents.id to the internal id.
+
+        Extraction stores mentions/edges against kg_documents.id (a generated UUID).
+        The Iqidis document UUID lives in kg_documents.doc_id. Callers from the
+        Next.js app pass the Iqidis id, so we must resolve before deleting.
+        """
+        cursor = self._get_cursor()
+        cursor.execute("""
+            SELECT id FROM kg_documents
+            WHERE matter_id = %s AND (id = %s OR doc_id = %s)
+        """, (self.matter_id, doc_id, doc_id))
+        row = cursor.fetchone()
+        return str(row["id"]) if row else None
+
+    def sync_with_matter_documents(self, allowed_iqidis_doc_ids: List[str]) -> Dict[str, Any]:
+        """Remove KG data for documents no longer attached to the matter."""
+        allowed = set(allowed_iqidis_doc_ids)
+        removed_ids: List[str] = []
+        for doc in self.get_all_documents():
+            iqidis_id = doc.doc_id
+            if iqidis_id and iqidis_id in allowed:
+                continue
+            if doc.id in allowed:
+                continue
+            self.delete_document(doc.id)
+            removed_ids.append(doc.id)
+        return {"removed_count": len(removed_ids), "removed_ids": removed_ids}
+
     def delete_document(self, doc_id: str):
-        """Delete a document and all related data (cascade handled by FK)."""
+        """Delete a document and all related data (cascade handled by FK).
+
+        Accepts either kg_documents.id or the Iqidis document id (doc_id column).
+        """
+        kg_doc_id = self.resolve_kg_document_id(doc_id)
+        if not kg_doc_id:
+            return
+
         cursor = self._get_cursor()
 
         # Get entities that only exist because of this document
         cursor.execute("""
             SELECT entity_id FROM kg_mentions WHERE doc_id = %s
             GROUP BY entity_id
-        """, (doc_id,))
+        """, (kg_doc_id,))
         entity_ids = [str(row["entity_id"]) for row in cursor.fetchall()]
 
         # Delete mentions for this document
-        cursor.execute("DELETE FROM kg_mentions WHERE doc_id = %s", (doc_id,))
+        cursor.execute("DELETE FROM kg_mentions WHERE doc_id = %s", (kg_doc_id,))
 
         # Delete edges with provenance from this document
         cursor.execute("DELETE FROM kg_edges WHERE provenance_doc_id = %s AND matter_id = %s",
-                       (doc_id, self.matter_id))
+                       (kg_doc_id, self.matter_id))
+
+        # Delete pre-computed chunk embeddings when present
+        cursor.execute(
+            "DELETE FROM kg_document_chunks WHERE kg_doc_id = %s AND matter_id = %s",
+            (kg_doc_id, self.matter_id),
+        )
 
         # Check if any entities became orphaned (no remaining mentions)
         for entity_id in entity_ids:
@@ -615,9 +657,9 @@ class PostgreSQLDatabase:
 
         # Delete the document
         cursor.execute(
-            "DELETE FROM kg_documents WHERE id = %s AND matter_id = %s", (doc_id, self.matter_id))
+            "DELETE FROM kg_documents WHERE id = %s AND matter_id = %s", (kg_doc_id, self.matter_id))
         self.conn.commit()
-        self._log_event("delete_document", {"doc_id": doc_id})
+        self._log_event("delete_document", {"doc_id": doc_id, "kg_doc_id": kg_doc_id})
 
     def _row_to_document(self, row: Dict) -> Document:
         """Convert a database row to a Document object."""

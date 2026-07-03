@@ -266,6 +266,43 @@ def api_delete_document(doc_id: str):
         return jsonify({"error": str(e)}), 500
 
 
+@api.route('/sync-documents', methods=['POST'])
+def api_sync_documents():
+    """Remove KG data for documents no longer attached to the matter.
+
+    Body: { matter_id, document_ids: [iqidis doc uuids currently on the matter] }
+    """
+    try:
+        data = request.get_json() or {}
+        matter_id = data.get('matter_id')
+        document_ids = data.get('document_ids', [])
+        if not matter_id:
+            return jsonify({'error': 'matter_id is required'}), 400
+
+        db_url = data.get('db_url') or get_postgres_url()
+        if matter_id in _instances:
+            db = _instances[matter_id]['kg'].db
+        else:
+            db = PostgreSQLDatabase(db_url, matter_id)
+
+        result = db.sync_with_matter_documents(document_ids)
+
+        if result.get('removed_count', 0) > 0:
+            try:
+                LayoutRepository(db, matter_id).set_status("stale")
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Failed to mark layout stale for matter %s: %s", matter_id, exc
+                )
+
+        return jsonify({'success': True, 'matter_id': matter_id, **result})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 # ==================== Statistics ====================
 
 @api.route('/stats')
