@@ -93,8 +93,37 @@ _NOISE_PATTERNS = [
 ]
 
 
-def _is_noise_entity_name(name: str) -> bool:
-    """Return True if `name` looks like extraction noise we should drop."""
+# Names made entirely of digits and id-style punctuation ("1700005183",
+# "17-0005/183"). Legitimate for Date ("2018-12-31" after ISO normalization)
+# and Money ("1,000,000") entities; for every other type a pure number is a
+# reference id leaking through as an entity name.
+_NUMERIC_ONLY_PATTERN = re.compile(r'^[\d\s\-\/.,:#()]+$')
+_NUMERIC_NAME_OK_TYPES = {"Date", "Money"}
+
+# Generic boilerplate the extractor emits as "document names" that carry no
+# identity — "system generated document", "untitled", "scanned copy", a bare
+# "exhibit"/"attachment". Real names like "Exhibit A" or "Form 16B" don't match.
+_BOILERPLATE_NAME_PATTERN = re.compile(
+    r'^(system[\s_-]*generated([\s_-]*(document|file|copy))?([\s_-]*\d+)?'
+    r'|untitled([\s_-]*(document|file))?'
+    r'|scanned([\s_-]*(document|file|copy|image))?'
+    r'|(new|draft|final)[\s_-]*document'
+    r'|copy[\s_-]*of[\s_-]*document'
+    r'|document[\s_-]*\d*'
+    r'|attachment[\s_-]*\d*'
+    r'|exhibit)$',
+    re.IGNORECASE,
+)
+
+
+def _is_noise_entity_name(name: str, entity_type: Optional[str] = None) -> bool:
+    """Return True if `name` looks like extraction noise we should drop.
+
+    `entity_type`, when known, makes the numeric check type-aware: Date and
+    Money names are legitimately numeric, everything else with a digits-only
+    name is a reference id, not an entity (e.g. "1700005183" surfacing as a
+    top-ranked Document in the insights sidebar).
+    """
     if not name:
         return True
     stripped = name.strip()
@@ -103,6 +132,11 @@ def _is_noise_entity_name(name: str) -> bool:
     for pat in _NOISE_PATTERNS:
         if pat.search(stripped):
             return True
+    if (entity_type not in _NUMERIC_NAME_OK_TYPES
+            and _NUMERIC_ONLY_PATTERN.match(stripped)):
+        return True
+    if _BOILERPLATE_NAME_PATTERN.match(stripped):
+        return True
     return False
 
 
@@ -1022,7 +1056,7 @@ class ExtractionPipeline:
         for entity in entities:
             if not entity.name or len(entity.name) < 2:
                 continue
-            if _is_noise_entity_name(entity.name):
+            if _is_noise_entity_name(entity.name, entity.type):
                 continue
             raw_name = entity.name
             dedup_key = EntityNormalizer.normalize_name(

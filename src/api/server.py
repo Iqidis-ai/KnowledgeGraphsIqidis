@@ -22,6 +22,7 @@ from google import genai
 
 # Import from core
 from ..core import KnowledgeGraph, GEMINI_API_KEY, POSTGRES_URL, get_postgres_url
+from ..core.extraction.extraction_pipeline import _is_noise_entity_name
 from ..core.storage.postgres_database import PostgreSQLDatabase
 from ..core.layout.layout_service import LayoutService
 from ..core.layout.layout_repository import LayoutRepository
@@ -2355,12 +2356,22 @@ def api_importance():
 
         # Get entities for this matter
         if entity_type:
-            cursor.execute('SELECT id, canonical_name, type, confidence FROM kg_entities WHERE matter_id = %s AND status = %s AND type = %s',
+            cursor.execute('SELECT id, canonical_name, type, confidence, properties FROM kg_entities WHERE matter_id = %s AND status = %s AND type = %s',
                            (matter_id, 'active', entity_type))
         else:
             cursor.execute(
-                'SELECT id, canonical_name, type, confidence FROM kg_entities WHERE matter_id = %s AND status = %s', (matter_id, 'active'))
+                'SELECT id, canonical_name, type, confidence, properties FROM kg_entities WHERE matter_id = %s AND status = %s', (matter_id, 'active'))
         entities = {row['id']: dict(row) for row in cursor.fetchall()}
+
+        # Read-side guard: entities extracted before the type-aware noise
+        # filter existed (bare reference numbers classified as Documents,
+        # "system generated document" boilerplate) are still in the store.
+        # Drop them from rankings so old matters stop surfacing junk; new
+        # extractions are already filtered at write time.
+        entities = {
+            eid: ent for eid, ent in entities.items()
+            if not _is_noise_entity_name(ent['canonical_name'], ent['type'])
+        }
 
         # Get edges for this matter
         cursor.execute(
@@ -2441,11 +2452,23 @@ def api_importance():
                 0.15 * min(aliases / 3, 1.0)           # Aliases
             ) * conf_boost
 
+            props = entity.get('properties') if isinstance(
+                entity.get('properties'), dict) else {}
             importance_scores.append({
                 'entity_id': eid,
                 'name': entity['canonical_name'],
                 'type': entity['type'],
                 'confidence': entity['confidence'],
+                # Set by the structural pass for uploaded documents
+                # (complaint, motion, deposition, …); null for documents
+                # that are merely mentioned in text. The frontend uses it
+                # to split Filings / Evidence & Testimony / Documents.
+                'document_type': props.get('document_type') if entity['type'] == 'Document' else None,
+                # Provenance: 'structural' = created from an uploaded file,
+                # null/other = extracted from text mentions (or added
+                # manually). Lets the sidebar separate uploaded documents
+                # from ones that are only referenced inside the text.
+                'entity_source': props.get('source'),
                 'importance_score': round(score, 4),
                 'metrics': {
                     'in_degree': in_degree.get(eid, 0),
