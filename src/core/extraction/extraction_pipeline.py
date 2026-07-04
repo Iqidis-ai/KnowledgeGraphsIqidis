@@ -94,11 +94,12 @@ _NOISE_PATTERNS = [
 
 
 # Names made entirely of digits and id-style punctuation ("1700005183",
-# "17-0005/183"). Legitimate for Date ("2018-12-31" after ISO normalization)
-# and Money ("1,000,000") entities; for every other type a pure number is a
-# reference id leaking through as an entity name.
+# "17-0005/183"). Legitimate for Date ("2018-12-31" after ISO normalization),
+# Money ("1,000,000") and Reference (docket numbers like "23-939", statute
+# sections) entities; for every other type a pure number is a reference id
+# leaking through as an entity name.
 _NUMERIC_ONLY_PATTERN = re.compile(r'^[\d\s\-\/.,:#()]+$')
-_NUMERIC_NAME_OK_TYPES = {"Date", "Money"}
+_NUMERIC_NAME_OK_TYPES = {"Date", "Money", "Reference"}
 
 # Generic boilerplate the extractor emits as "document names" that carry no
 # identity — "system generated document", "untitled", "scanned copy", a bare
@@ -138,6 +139,39 @@ def _is_noise_entity_name(name: str, entity_type: Optional[str] = None) -> bool:
     if _BOILERPLATE_NAME_PATTERN.match(stripped):
         return True
     return False
+
+
+# Names the LLM tags as "Document" that are really identifiers, measurements
+# or payment rails — real-world referents, but not written artifacts
+# ("411 sft", "0 Car Park", "IMPS", "ICIC0000002", "Unit 13121A"). They are
+# reclassified to Reference so document lists stay truthful while the graph
+# keeps the connections.
+_IMPLAUSIBLE_DOCUMENT_PATTERNS = [
+    # Areas / measurements
+    re.compile(r'^\d+(\.\d+)?\s*(sft|sq\.?\s*ft\.?|sqft|sq\.?\s*m\.?|sqm|acres?|hectares?|sq\.?\s*yards?)\b', re.IGNORECASE),
+    # Property attributes ("0 Car Park", "2 car parks")
+    re.compile(r'^\d+\s+car\s+parks?$', re.IGNORECASE),
+    # Unit / flat / plot identifiers
+    re.compile(r'^(unit|flat|plot|apartment|apt)\s*[-#:]?\s*[\w/]{1,12}$', re.IGNORECASE),
+    # Payment methods / rails, optionally with a date suffix ("NEFT Dt:09.04.2026")
+    re.compile(r'^(imps|neft|rtgs|upi|ecs|ach|swift|wire\s+transfer|cheque|dd|demand\s+draft)'
+               r'([\s/,-]+(imps|neft|rtgs|upi|ecs|ach))*'
+               r'([\s.,]*dt\.?\s*:?.*)?$', re.IGNORECASE),
+    # IFSC codes (ICIC0000002)
+    re.compile(r'^[A-Z]{4}0[A-Z0-9]{6}$'),
+    # Compact letters+digits identifiers with no spaces (PEPPRP13121A)
+    re.compile(r'^[A-Z]{2,}[-/]?\d{3,}[A-Z]?$'),
+]
+
+
+def _reclassify_implausible_document(name: str) -> Optional[str]:
+    """Return a replacement entity type if `name` cannot plausibly be a
+    written document, else None (keep Document)."""
+    stripped = (name or '').strip()
+    for pat in _IMPLAUSIBLE_DOCUMENT_PATTERNS:
+        if pat.match(stripped):
+            return 'Reference'
+    return None
 
 
 class EntityNormalizer:
@@ -982,28 +1016,32 @@ class ExtractionPipeline:
 
         # Document metadata entity — use the filename (sans extension) so
         # users see "lease-agreement-2024" rather than "Doc_de05e620".
-        if structural.document_type != 'unknown':
-            if filename:
-                doc_name = os.path.splitext(os.path.basename(filename))[0]
-                # An empty stem (e.g. ".pdf") falls back to the legacy form
-                if not doc_name.strip():
-                    doc_name = f"Doc_{doc_id[:8]}"
-            else:
+        # Created unconditionally: gating on a detected document_type meant
+        # uploads the detector didn't recognize (receipts, invoices, …) got
+        # NO entity at all, so the matter's own files never appeared in the
+        # sidebar's Uploaded Documents while text mentions did.
+        if filename:
+            doc_name = os.path.splitext(os.path.basename(filename))[0]
+            # An empty stem (e.g. ".pdf") falls back to the legacy form
+            if not doc_name.strip():
                 doc_name = f"Doc_{doc_id[:8]}"
-            _resolve_or_track(
-                doc_name,
-                lambda: Entity.create(
-                    type="Document",
-                    canonical_name=doc_name,
-                    properties={
-                        "document_type": structural.document_type,
-                        "case_number": structural.case_number,
-                        "court": structural.court_or_tribunal,
-                        "source": "structural",
-                    },
-                    confidence="confirmed",
-                ),
-            )
+        else:
+            doc_name = f"Doc_{doc_id[:8]}"
+        _resolve_or_track(
+            doc_name,
+            lambda: Entity.create(
+                type="Document",
+                canonical_name=doc_name,
+                properties={
+                    "document_type": structural.document_type
+                    if structural.document_type != 'unknown' else None,
+                    "case_number": structural.case_number,
+                    "court": structural.court_or_tribunal,
+                    "source": "structural",
+                },
+                confidence="confirmed",
+            ),
+        )
 
         # Batch insert all at once
         if all_entities:
@@ -1108,6 +1146,13 @@ class ExtractionPipeline:
                 entity.name, entity.type)
             if validated_type != entity.type:
                 entity.type = validated_type
+
+            # LLM over-applies "Document" to identifiers, measurements and
+            # payment rails; demote those to Reference before storage.
+            if entity.type == 'Document':
+                demoted = _reclassify_implausible_document(entity.name)
+                if demoted:
+                    entity.type = demoted
 
             normalized_name = EntityNormalizer.normalize_name(
                 entity.name, entity.type)

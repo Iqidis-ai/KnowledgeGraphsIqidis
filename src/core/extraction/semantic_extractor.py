@@ -89,7 +89,7 @@ ENTITY TYPES TO EXTRACT:
 - Location: cities, states, countries, addresses, jurisdictions
 - Money: ALL dollar amounts, fees, damages, payments (include: amount, currency, purpose)
 - Date: ALL dates mentioned (include: context - filing date, deadline, event date)
-- Document: contracts, agreements, exhibits, motions, orders, filings
+- Document: written artifacts ONLY (contracts, agreements, receipts, invoices, letters, exhibits, motions, orders, filings, reports). NOT payment methods (IMPS/NEFT/RTGS/UPI), bank or IFSC codes, unit/flat numbers, areas or measurements, app/portal names — use Reference for identifiers and codes
 - Clause: specific contract sections, terms, provisions
 - Reference: case citations, statute references, exhibit numbers
 

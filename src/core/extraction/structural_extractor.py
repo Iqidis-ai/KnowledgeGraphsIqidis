@@ -254,6 +254,13 @@ class StructuralExtractor:
             'answer': ['answer to complaint', 'defendant answers', 'defendant hereby answers'],
             'motion': ['motion to', 'moves this court', 'motion for'],
             'brief': ['brief in support', 'memorandum of law', 'legal memorandum', 'pre-hearing brief', 'prehearing brief'],
+            # Placed before 'contract' — its indicators ('agreement', …) are
+            # loose enough to shadow these more specific kinds.
+            'receipt': ['receipt', 'received with thanks', 'received from', 'payment received', 'acknowledgement of payment'],
+            'invoice': ['invoice', 'tax invoice', 'bill of supply'],
+            'statement': ['statement of account', 'account statement', 'bank statement'],
+            'letter': ['intimation letter', 'demand letter', 'allotment letter', 'offer letter', 'booking intimation', 'engagement letter'],
+            'form': ['form 16', 'form no.', 'challan'],
             'contract': ['agreement', 'contract', 'hereby agree', 'terms and conditions'],
             'deposition': ['deposition of', 'deposition transcript', 'q.', 'a.'],
             'affidavit': ['affidavit', 'being duly sworn', 'swear under penalty'],

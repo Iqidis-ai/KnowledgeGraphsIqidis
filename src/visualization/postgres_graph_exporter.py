@@ -6,6 +6,24 @@ import psycopg2
 import psycopg2.extensions
 import psycopg2.extras
 from typing import Dict, List, Optional, Set
+
+from ..core.extraction.extraction_pipeline import _is_noise_entity_name
+
+
+def _keep_visible_entity(e) -> bool:
+    """Read-side noise guard shared by graph payload builders.
+
+    Same rule as /api/importance: legacy junk entities (bare reference
+    numbers as Documents, boilerplate names) still live in the store; keep
+    them off the canvas and out of the filter-chip counts so every surface
+    reports the same numbers. Entities created from an uploaded file
+    (source='structural') are exempt — their names are real filenames and
+    may legitimately be numeric.
+    """
+    props = e['properties'] if isinstance(e['properties'], dict) else {}
+    if props.get('source') == 'structural':
+        return True
+    return not _is_noise_entity_name(e['canonical_name'], e['type'])
 from collections import defaultdict
 
 from ..core.storage import db_pool
@@ -112,7 +130,7 @@ class PostgreSQLGraphExporter:
             LIMIT %s
         ''', (self.matter_id, self.matter_id, self.matter_id) + type_filter_params + (min_connections, limit_nodes))
 
-        entities = cursor.fetchall()
+        entities = [e for e in cursor.fetchall() if _keep_visible_entity(e)]
         entity_ids = {str(e['id']) for e in entities}
 
         # Build nodes
@@ -213,7 +231,7 @@ class PostgreSQLGraphExporter:
             LIMIT %s
         ''', (entity_id, self.matter_id, depth, self.matter_id, max_nodes))
         
-        entities = cursor.fetchall()
+        entities = [e for e in cursor.fetchall() if _keep_visible_entity(e)]
         entity_ids = {str(e['id']) for e in entities}
         
         # Build nodes

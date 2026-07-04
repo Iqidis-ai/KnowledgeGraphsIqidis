@@ -2505,9 +2505,16 @@ def api_importance():
         # "system generated document" boilerplate) are still in the store.
         # Drop them from rankings so old matters stop surfacing junk; new
         # extractions are already filtered at write time.
+        # Entities created from an uploaded file (source='structural') are
+        # exempt: their names come from real filenames, which may be numeric.
+        def _keep_entity(ent):
+            props = ent.get('properties') if isinstance(
+                ent.get('properties'), dict) else {}
+            if props.get('source') == 'structural':
+                return True
+            return not _is_noise_entity_name(ent['canonical_name'], ent['type'])
         entities = {
-            eid: ent for eid, ent in entities.items()
-            if not _is_noise_entity_name(ent['canonical_name'], ent['type'])
+            eid: ent for eid, ent in entities.items() if _keep_entity(ent)
         }
 
         # Get edges for this matter
