@@ -26,6 +26,7 @@ boto3>=1.34.0
 # Utilities
 python-dotenv>=1.0.0
 tiktoken>=0.7.0
+cachetools>=5.3
 
 # Graph layout (knowledge graph v2 renderer)
 networkx>=3.2
