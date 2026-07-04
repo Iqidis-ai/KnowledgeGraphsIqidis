@@ -11,7 +11,9 @@ Usage:
 """
 import json
 import re
+import threading
 import uuid
+from collections import OrderedDict
 from difflib import SequenceMatcher
 from typing import Optional, List, Dict, Tuple
 from pathlib import Path
@@ -22,10 +24,22 @@ from google import genai
 
 # Import from core
 from ..core import KnowledgeGraph, GEMINI_API_KEY, POSTGRES_URL, get_postgres_url
+from ..core.config import gemini_http_options
 from ..core.extraction.extraction_pipeline import _is_noise_entity_name
+from ..core.storage import db_pool
+from .response_cache import (
+    cached_endpoint,
+    invalidates_matter,
+    invalidate_matter,
+    get_or_none as _cache_get,
+    set_manual as _cache_set,
+    get_stats as _cache_stats,
+)
 from ..core.storage.postgres_database import PostgreSQLDatabase
+from ..core.embeddings.vector_store import EmbeddingGenerator
 from ..core.layout.layout_service import LayoutService
 from ..core.layout.layout_repository import LayoutRepository
+from ..core.query.nl_query import NLQueryEngine
 from ..visualization.postgres_graph_exporter import PostgreSQLGraphExporter
 
 
@@ -79,35 +93,80 @@ def _apply_top_k(
 
 
 # Per-matter instance cache — avoids global singleton swapping that caused
-# data spillover when multiple matters were accessed concurrently.
-_instances: Dict[str, Dict] = {}
+# data spillover when multiple matters were accessed concurrently. Bounded
+# LRU + lock: previously a plain dict, mutated without synchronization, which
+# raced under gthread concurrency and grew without bound as new matters were
+# touched.
+_INSTANCE_CACHE_MAX = 32
+_instances: "OrderedDict[str, Dict]" = OrderedDict()
+_instances_lock = threading.Lock()
 _nl_edit_client = None
 _nl_edit_model = None
+_embedding_generator: Optional[EmbeddingGenerator] = None
+
+
+def _get_embedding_generator(api_key: str = GEMINI_API_KEY) -> EmbeddingGenerator:
+    """Process-wide singleton EmbeddingGenerator. Was previously re-instantiated
+    per request (`/similar/*` etc.), each spinning up a new Gemini client and
+    TLS handshake."""
+    global _embedding_generator
+    if _embedding_generator is None:
+        _embedding_generator = EmbeddingGenerator(api_key)
+    return _embedding_generator
 
 
 def _get_or_create_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
                           db_url: Optional[str] = None) -> Dict:
-    """Get or create KG + exporter instances for a specific matter.
+    """Get or create KG + exporter + query_engine instances for a specific matter.
 
-    Instances are cached per matter_id so concurrent requests for different
-    matters never clobber each other.
+    Instances are cached per matter_id under a lock (previously unlocked, which
+    could double-init a matter under concurrent cold-hits). Cache is a bounded
+    LRU so long-tail matter access doesn't leak memory.
     """
     global _nl_edit_client, _nl_edit_model
-    if matter_name in _instances:
-        return _instances[matter_name]
 
-    resolved_url = db_url or get_postgres_url()
-    kg = KnowledgeGraph(matter_name, api_key=api_key, db_url=resolved_url)
-    exporter = PostgreSQLGraphExporter(resolved_url, matter_name)
+    with _instances_lock:
+        entry = _instances.get(matter_name)
+        if entry is not None:
+            _instances.move_to_end(matter_name)
+            return entry
 
-    # Configure NL edit model (shared across matters)
-    if _nl_edit_client is None:
-        _nl_edit_client = genai.Client(api_key=api_key)
-        _nl_edit_model = 'gemini-2.0-flash'
+        resolved_url = db_url or get_postgres_url()
+        kg = KnowledgeGraph(matter_name, api_key=api_key, db_url=resolved_url)
+        exporter = PostgreSQLGraphExporter(resolved_url, matter_name)
+        # Cache one NLQueryEngine per matter — was previously constructed on
+        # every request in 11 endpoints, each rebuilding a Gemini client.
+        query_engine = NLQueryEngine(kg.db, kg.vector_store, api_key=api_key)
 
-    entry = {"kg": kg, "exporter": exporter, "matter_name": matter_name}
-    _instances[matter_name] = entry
-    return entry
+        if _nl_edit_client is None:
+            _nl_edit_client = genai.Client(
+                api_key=api_key, http_options=gemini_http_options()
+            )
+            _nl_edit_model = 'gemini-2.0-flash'
+
+        entry = {
+            "kg": kg,
+            "exporter": exporter,
+            "query_engine": query_engine,
+            "matter_name": matter_name,
+        }
+        _instances[matter_name] = entry
+
+        # LRU eviction: drop the oldest entry when we exceed the cap. Pool
+        # connections are shared and pool-owned, so no explicit close needed.
+        while len(_instances) > _INSTANCE_CACHE_MAX:
+            _instances.popitem(last=False)
+
+        return entry
+
+
+def _get_query_engine() -> NLQueryEngine:
+    """Fetch the cached NLQueryEngine for the current request's matter."""
+    mid = _get_matter_id()
+    entry = _instances.get(mid)
+    if entry is None:
+        raise RuntimeError("API not initialized. Call _ensure_matter() first.")
+    return entry["query_engine"]
 
 
 def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
@@ -153,6 +212,19 @@ def get_exporter() -> PostgreSQLGraphExporter:
     return entry["exporter"]
 
 
+# ==================== Request Teardown ====================
+
+@api.teardown_request
+def _release_pool_connections(exc):
+    """Return this thread's pooled Postgres connections to the pool. Runs after
+    every /api/* request, whether it succeeded or raised, so a connection is
+    never held past the request boundary."""
+    try:
+        db_pool.release_all()
+    except Exception:
+        pass
+
+
 # ==================== Health Check ====================
 
 @api.route('/health')
@@ -179,6 +251,7 @@ def api_list_matters():
 
 
 @api.route('/extract-from-iqidis', methods=['POST'])
+@invalidates_matter()
 def api_extract_from_iqidis():
     """Extract KG from documents sent by Next.js frontend. Stores graph in PostgreSQL.
 
@@ -218,6 +291,7 @@ def api_extract_from_iqidis():
 
 
 @api.route('/document/<doc_id>', methods=['DELETE'])
+@invalidates_matter()
 def api_delete_document(doc_id: str):
     """Remove a document and all KG data sourced from it.
 
@@ -268,6 +342,7 @@ def api_delete_document(doc_id: str):
 
 
 @api.route('/sync-documents', methods=['POST'])
+@invalidates_matter()
 def api_sync_documents():
     """Remove KG data for documents no longer attached to the matter.
 
@@ -307,6 +382,7 @@ def api_sync_documents():
 # ==================== Statistics ====================
 
 @api.route('/stats')
+@cached_endpoint()
 def api_stats():
     """Get graph statistics."""
     _ensure_matter()
@@ -315,9 +391,16 @@ def api_stats():
     return jsonify(stats)
 
 
+@api.route('/cache/stats')
+def api_cache_stats():
+    """Debug: cache hit/miss counters for the current worker."""
+    return jsonify(_cache_stats())
+
+
 # ==================== Graph Data ====================
 
 @api.route('/graph')
+@cached_endpoint()
 def api_graph():
     """Get full graph data for visualization."""
     _ensure_matter()
@@ -505,6 +588,7 @@ def api_graph_viewport():
 # ==================== Search ====================
 
 @api.route('/search')
+@cached_endpoint()
 def api_search():
     """Search entities by name."""
     _ensure_matter()
@@ -522,6 +606,7 @@ def api_search():
 # ==================== Entity CRUD ====================
 
 @api.route('/entity/<entity_id>')
+@cached_endpoint()
 def api_get_entity(entity_id):
     """Get entity details and neighborhood."""
     _ensure_matter()
@@ -534,6 +619,7 @@ def api_get_entity(entity_id):
 
 
 @api.route('/entity/<entity_id>', methods=['PUT'])
+@invalidates_matter()
 def api_update_entity(entity_id):
     """Update entity properties."""
     _ensure_matter()
@@ -578,6 +664,7 @@ def api_update_entity(entity_id):
 
 
 @api.route('/entity/<entity_id>', methods=['DELETE'])
+@invalidates_matter()
 def api_delete_entity(entity_id):
     """Delete an entity and its relationships."""
     _ensure_matter()
@@ -602,6 +689,7 @@ def api_delete_entity(entity_id):
 
 
 @api.route('/entity', methods=['POST'])
+@invalidates_matter()
 def api_create_entity():
     """Create a new entity."""
     _ensure_matter()
@@ -647,6 +735,7 @@ def api_create_entity():
 # ==================== Edge CRUD ====================
 
 @api.route('/edge', methods=['POST'])
+@invalidates_matter()
 def api_create_edge():
     """Create a new edge/relationship."""
     _ensure_matter()
@@ -684,6 +773,7 @@ def api_create_edge():
 
 
 @api.route('/edge/<edge_id>', methods=['DELETE'])
+@invalidates_matter()
 def api_delete_edge(edge_id):
     """Delete an edge."""
     _ensure_matter()
@@ -711,6 +801,18 @@ def api_query():
 
     if not query_text:
         return jsonify({'error': 'No query provided'}), 400
+
+    # Cache identical query text on the same matter — the NL pipeline runs
+    # 3+ Gemini calls per query, so even a modest hit-rate on repeated
+    # questions cuts p50 by seconds and Gemini spend by the same fraction.
+    # Cache the dict payload (not the Response) so we can safely re-jsonify
+    # on every hit.
+    matter_id = _get_matter_id()
+    cache_key = (query_text.strip().lower(),)
+    if not data.get('nocache'):
+        cached_payload = _cache_get('api_query', matter_id, cache_key)
+        if cached_payload is not None:
+            return jsonify(cached_payload)
 
     try:
         kg = get_kg()
@@ -764,7 +866,7 @@ def api_query():
                 'type': fact.get('type', 'Fact')
             })
 
-        return jsonify({
+        payload = {
             'query': query_text,
             'answer': result.answer,
             'subgraph': {
@@ -777,7 +879,9 @@ def api_query():
                 'edges_found': len(result.edges),
                 'facts_found': len(result.facts)
             }
-        })
+        }
+        _cache_set('api_query', matter_id, cache_key, payload)
+        return jsonify(payload)
 
     except Exception as e:
         import traceback
@@ -788,6 +892,7 @@ def api_query():
 # ==================== Merge ====================
 
 @api.route('/merge', methods=['POST'])
+@invalidates_matter()
 def api_merge_entities():
     """Merge two entities into one."""
     _ensure_matter()
@@ -832,6 +937,7 @@ def api_relation_types():
 # ==================== Natural Language Edit ====================
 
 @api.route('/nl-edit', methods=['POST'])
+@invalidates_matter()
 def api_nl_edit():
     """Execute a natural language edit command."""
     _ensure_matter()
@@ -1129,6 +1235,7 @@ def _find_duplicates(entities: List[Dict], threshold: float = 0.75,
 
 
 @api.route('/duplicates')
+@cached_endpoint()
 def api_find_duplicates():
     """Find potential duplicate entities for cleanup."""
     _ensure_matter()
@@ -1176,6 +1283,7 @@ def api_find_duplicates():
 
 
 @api.route('/batch-merge', methods=['POST'])
+@invalidates_matter()
 def api_batch_merge():
     """Merge multiple pairs of entities at once."""
     _ensure_matter()
@@ -1265,6 +1373,7 @@ def _parse_date(date_str: str) -> Optional[str]:
 
 
 @api.route('/timeline')
+@cached_endpoint()
 def api_timeline():
     """Get timeline of dated events/entities."""
     _ensure_matter()
@@ -1310,28 +1419,51 @@ def api_timeline():
         # which they aren't.
         timeline = []
 
+        # Prefilter to date entities we'll actually emit (parseable name),
+        # then fetch their neighbors in a single batched query instead of
+        # one round-trip per date. This turned /timeline from N+1 queries
+        # into 3.
+        parseable_dates = []
         for entity in date_entities:
             parsed = _parse_date(entity['canonical_name'])
-            # Date entities with no parseable date are themselves likely
-            # extraction noise (raw strings like "upon closing"). Skip.
             if not parsed:
                 continue
-            props = entity.get('properties') or {}
+            parseable_dates.append((entity, parsed))
 
-            # Get related entities for this matter
+        related_by_entity: Dict[str, list] = {}
+        if parseable_dates:
+            date_ids = [str(e['id']) for e, _ in parseable_dates]
             cursor.execute('''
-                SELECT DISTINCT e2.canonical_name, e2.type, ed.relation_type
+                SELECT
+                    CASE WHEN ed.source_entity_id = ANY(%s::uuid[])
+                         THEN ed.source_entity_id ELSE ed.target_entity_id END AS anchor_id,
+                    e2.canonical_name,
+                    e2.type,
+                    ed.relation_type
                 FROM kg_edges ed
-                JOIN kg_entities e2 ON (
-                    (ed.source_entity_id = %s AND ed.target_entity_id = e2.id)
-                    OR (ed.target_entity_id = %s AND ed.source_entity_id = e2.id)
-                )
-                WHERE ed.matter_id = %s AND e2.type != 'Date'
-                LIMIT 10
-            ''', (entity['id'], entity['id'], matter_id))
-            related = [{'name': r['canonical_name'], 'type': r['type'], 'relation': r['relation_type']}
-                       for r in cursor.fetchall()]
+                JOIN kg_entities e2 ON e2.id = CASE
+                    WHEN ed.source_entity_id = ANY(%s::uuid[]) THEN ed.target_entity_id
+                    ELSE ed.source_entity_id
+                END
+                WHERE ed.matter_id = %s
+                  AND (ed.source_entity_id = ANY(%s::uuid[])
+                       OR ed.target_entity_id = ANY(%s::uuid[]))
+                  AND e2.type != 'Date'
+            ''', (date_ids, date_ids, matter_id, date_ids, date_ids))
+            # Group in Python, capped at 10 neighbors per date to preserve
+            # the previous LIMIT 10 semantics.
+            for row in cursor.fetchall():
+                bucket = related_by_entity.setdefault(str(row['anchor_id']), [])
+                if len(bucket) < 10:
+                    bucket.append({
+                        'name': row['canonical_name'],
+                        'type': row['type'],
+                        'relation': row['relation_type'],
+                    })
 
+        for entity, parsed in parseable_dates:
+            props = entity.get('properties') or {}
+            related = related_by_entity.get(str(entity['id']), [])
             timeline.append({
                 'id': entity['id'],
                 'date_raw': entity['canonical_name'],
@@ -1627,6 +1759,7 @@ def _compute_betweenness(adj: Dict[str, set], entity_ids: set, sample_size: int 
 
 
 @api.route('/analytics')
+@cached_endpoint()
 def api_analytics():
     """Compute graph analytics: degree centrality, PageRank, betweenness."""
     _ensure_matter()
@@ -1755,6 +1888,7 @@ def api_analytics():
 # ==================== Shortest Path ====================
 
 @api.route('/shortest-path')
+@cached_endpoint()
 def api_shortest_path():
     """Find shortest path between two entities."""
     _ensure_matter()
@@ -1914,6 +2048,7 @@ QUERY_TEMPLATES = {
 
 
 @api.route('/schema')
+@cached_endpoint()
 def api_schema():
     """Get the current graph schema (entity types, relationship types, counts)."""
     _ensure_matter()
@@ -1921,7 +2056,7 @@ def api_schema():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         schema = query_engine._get_live_schema(force_refresh=True)
 
         # Also return structured data
@@ -2125,6 +2260,7 @@ Be factual and cite the entities mentioned above. Output only the summary text."
 # ==================== Relationship Analysis ====================
 
 @api.route('/relationship-analysis')
+@cached_endpoint()
 def api_relationship_analysis():
     """Analyze relationship patterns in the graph."""
     _ensure_matter()
@@ -2234,7 +2370,7 @@ def api_similar_entities(entity_id):
         # Get similar entities from vector store
         from ..core.embeddings.vector_store import EmbeddingGenerator
 
-        embedding_gen = EmbeddingGenerator()
+        embedding_gen = _get_embedding_generator()
 
         # Generate embedding for search
         search_text = f"{entity['canonical_name']} {entity['type']}"
@@ -2296,7 +2432,7 @@ def api_similar_by_name():
         exp = get_exporter()
 
         from ..core.embeddings.vector_store import EmbeddingGenerator
-        embedding_gen = EmbeddingGenerator()
+        embedding_gen = _get_embedding_generator()
 
         # Generate embedding for query
         search_text = f"{query} {entity_type}" if entity_type else query
@@ -2342,6 +2478,7 @@ def api_similar_by_name():
 # ==================== Entity Importance Scoring ====================
 
 @api.route('/importance')
+@cached_endpoint()
 def api_importance():
     """Score entities by importance using multiple metrics."""
     _ensure_matter()
@@ -2510,7 +2647,7 @@ def api_temporal():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
 
         if query:
             # Parse natural language temporal query
@@ -2531,6 +2668,7 @@ def api_temporal():
 # ==================== Find Connections ====================
 
 @api.route('/connections')
+@cached_endpoint()
 def api_connections():
     """Find all paths/connections between two entities."""
     _ensure_matter()
@@ -2544,7 +2682,7 @@ def api_connections():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
 
         result = query_engine.find_connections(entity1, entity2)
         return jsonify(result)
@@ -2601,6 +2739,7 @@ def _find_connected_components(adj: Dict[str, set], entity_ids: set) -> List[set
 
 
 @api.route('/clusters')
+@cached_endpoint()
 def api_clusters():
     """Find entity clusters (connected components) in the graph."""
     _ensure_matter()
@@ -2686,7 +2825,7 @@ def api_disambiguate():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         candidates = query_engine.disambiguate_entity(name, entity_type)
 
         return jsonify({
@@ -2703,6 +2842,7 @@ def api_disambiguate():
 
 
 @api.route('/resolve-entities', methods=['POST'])
+@invalidates_matter()
 def api_resolve_entities():
     """
     Resolve multiple entity references to their canonical matches.
@@ -2723,7 +2863,7 @@ def api_resolve_entities():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         resolved = query_engine.resolve_entity_references(entities)
 
         return jsonify({
@@ -2756,7 +2896,7 @@ def api_narrative_timeline():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         result = query_engine.generate_narrative_timeline(
             start_year=start_year, end_year=end_year)
 
@@ -2789,7 +2929,7 @@ def api_related_questions():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         suggestions = query_engine.suggest_related_questions(query, answer)
 
         return jsonify({
@@ -2806,6 +2946,7 @@ def api_related_questions():
 # ==================== Inference API Endpoints ====================
 
 @api.route('/inference/important-entities', methods=['GET'])
+@cached_endpoint()
 def api_important_entities():
     """
     Get the most important entities using PageRank-style scoring.
@@ -2825,7 +2966,7 @@ def api_important_entities():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         results = query_engine.get_important_entities(
             entity_types=entity_types, top_k=top_k)
 
@@ -2842,6 +2983,7 @@ def api_important_entities():
 
 
 @api.route('/inference/fact-reliability', methods=['GET'])
+@cached_endpoint()
 def api_fact_reliability():
     """
     Get fact reliability scores based on corroboration analysis.
@@ -2856,7 +2998,7 @@ def api_fact_reliability():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         results = query_engine.get_fact_reliability(top_k=top_k)
 
         return jsonify({
@@ -2871,6 +3013,7 @@ def api_fact_reliability():
 
 
 @api.route('/inference/inferred-relationships', methods=['GET'])
+@cached_endpoint()
 def api_inferred_relationships():
     """
     Get inferred (implicit) relationships for an entity.
@@ -2887,7 +3030,7 @@ def api_inferred_relationships():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         results = query_engine.get_inferred_relationships(entity_name)
 
         return jsonify({
@@ -2903,6 +3046,7 @@ def api_inferred_relationships():
 
 
 @api.route('/inference/resolve-entity', methods=['POST'])
+@invalidates_matter()
 def api_resolve_entity_bayesian():
     """
     Resolve an entity name with Bayesian confidence scoring.
@@ -2925,7 +3069,7 @@ def api_resolve_entity_bayesian():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         candidates = query_engine.resolve_entity_with_confidence(
             name, entity_type=entity_type, context=context
         )

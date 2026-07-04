@@ -18,7 +18,7 @@ from google import genai
 from ..storage.postgres_database import PostgreSQLDatabase as Database
 from ..storage.models import Entity, Edge
 from ..embeddings.vector_store import VectorStore, EmbeddingGenerator
-from ..config import GEMINI_API_KEY, GEMINI_MODEL
+from ..config import GEMINI_API_KEY, GEMINI_MODEL, gemini_http_options
 from ..inference.graph_inference import GraphInference
 
 # Rate limiting
@@ -42,9 +42,8 @@ class QueryResult:
 class NLQueryEngine:
     """Natural language query engine for the knowledge graph."""
 
-    # Cache for schema (regenerate every N queries)
-    _schema_cache = None
-    _schema_cache_query_count = 0
+    # How often to refresh the schema cache (per instance). Instance-scoped so
+    # matter A's schema never leaks into matter B's prompt.
     SCHEMA_CACHE_REFRESH_INTERVAL = 50  # Refresh schema every 50 queries
 
     # Complex query decomposition prompt
@@ -203,11 +202,16 @@ Output as JSON array:
     def __init__(self, db: Database, vector_store: VectorStore, api_key: str = GEMINI_API_KEY):
         self.db = db
         self.vector_store = vector_store
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(api_key=api_key, http_options=gemini_http_options())
         self.model_name = GEMINI_MODEL
         self.embedding_generator = EmbeddingGenerator(api_key)
         self.last_request_time = 0
         self.inference = GraphInference(db)  # Probabilistic inference engine
+
+        # Per-instance schema cache. Previously a class attribute, which
+        # leaked matter A's schema into matter B's prompt across requests.
+        self._schema_cache: Optional[str] = None
+        self._schema_cache_query_count = 0
 
         from google.genai import types
         self.generation_config = types.GenerateContentConfig(
@@ -217,14 +221,14 @@ Output as JSON array:
         )
 
     def _get_live_schema(self, force_refresh: bool = False) -> str:
-        """Get live schema from the database (cached)."""
-        NLQueryEngine._schema_cache_query_count += 1
+        """Get live schema from the database (per-instance cache)."""
+        self._schema_cache_query_count += 1
 
-        if (NLQueryEngine._schema_cache is None or
+        if (self._schema_cache is None or
             force_refresh or
-            NLQueryEngine._schema_cache_query_count >= self.SCHEMA_CACHE_REFRESH_INTERVAL):
+            self._schema_cache_query_count >= self.SCHEMA_CACHE_REFRESH_INTERVAL):
 
-            NLQueryEngine._schema_cache_query_count = 0
+            self._schema_cache_query_count = 0
 
             # Get entity type counts
             stats = self.db.get_stats()
@@ -256,9 +260,9 @@ Output as JSON array:
             # Total counts
             schema_parts.append(f"\nTOTALS: {stats.get('total_entities', 0)} entities, {stats.get('total_edges', 0)} relationships")
 
-            NLQueryEngine._schema_cache = "\n".join(schema_parts)
+            self._schema_cache = "\n".join(schema_parts)
 
-        return NLQueryEngine._schema_cache
+        return self._schema_cache
 
     def disambiguate_entity(self, query_name: str, entity_type: str = None) -> List[Dict[str, Any]]:
         """

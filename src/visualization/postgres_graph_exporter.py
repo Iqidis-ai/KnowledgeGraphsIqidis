@@ -3,13 +3,21 @@ Export knowledge graph data for visualization from PostgreSQL.
 """
 import json
 import psycopg2
+import psycopg2.extensions
 import psycopg2.extras
 from typing import Dict, List, Optional, Set
 from collections import defaultdict
 
+from ..core.storage import db_pool
+
 
 class PostgreSQLGraphExporter:
-    """Export graph data for web visualization from PostgreSQL."""
+    """Export graph data for web visualization from PostgreSQL.
+
+    Connection lifecycle is managed by `db_pool`: each request thread checks
+    out a pooled connection on first `self.conn` access and returns it at
+    Flask teardown.
+    """
 
     # Color palette for entity types
     TYPE_COLORS = {
@@ -33,44 +41,18 @@ class PostgreSQLGraphExporter:
         """
         self.connection_string = connection_string
         self.matter_id = matter_id
-        self.conn = self._new_connection()
-        psycopg2.extras.register_uuid()
 
-    def _new_connection(self):
-        """Create a new PostgreSQL connection with TCP keepalives."""
-        conn = psycopg2.connect(
-            self.connection_string,
-            keepalives=1,
-            keepalives_idle=60,
-            keepalives_interval=15,
-            keepalives_count=3,
-        )
-        conn.autocommit = False
-        return conn
-
-    def _ensure_connection(self):
-        """Reconnect if the connection has been closed or dropped."""
-        try:
-            if self.conn.closed:
-                raise psycopg2.InterfaceError("connection already closed")
-            cur = self.conn.cursor()
-            cur.execute("SELECT 1")
-            cur.close()
-            self.conn.rollback()
-        except (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError):
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            self.conn = self._new_connection()
+    @property
+    def conn(self) -> psycopg2.extensions.connection:
+        return db_pool.checkout(self.connection_string)
 
     def _get_cursor(self):
-        """Get a cursor with dict-like row factory, reconnecting if needed."""
-        self._ensure_connection()
+        """Get a cursor with dict-like row factory."""
         return self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     def close(self):
-        self.conn.close()
+        """No-op. Connections are pool-owned."""
+        pass
 
     def get_graph_data(
         self,
@@ -95,14 +77,16 @@ class PostgreSQLGraphExporter:
         """
         cursor = self._get_cursor()
 
-        # Build entity filter
+        # Build entity filter — parameterize the type list so caller-supplied
+        # strings can never be interpreted as SQL.
         type_filter = ""
+        type_filter_params: tuple = ()
         if entity_types:
-            types_str = ", ".join(f"'{t}'" for t in entity_types)
-            type_filter = f"AND type IN ({types_str})"
+            type_filter = "AND type = ANY(%s::text[])"
+            type_filter_params = (list(entity_types),)
         elif exclude_types:
-            types_str = ", ".join(f"'{t}'" for t in exclude_types)
-            type_filter = f"AND type NOT IN ({types_str})"
+            type_filter = "AND type <> ALL(%s::text[])"
+            type_filter_params = (list(exclude_types),)
         elif not include_facts:
             type_filter = "AND type != 'Fact'"
 
@@ -110,10 +94,10 @@ class PostgreSQLGraphExporter:
         cursor.execute(f'''
             WITH edge_counts AS (
                 SELECT entity_id, SUM(cnt) as connections FROM (
-                    SELECT source_entity_id as entity_id, COUNT(*) as cnt 
+                    SELECT source_entity_id as entity_id, COUNT(*) as cnt
                     FROM kg_edges WHERE matter_id = %s GROUP BY source_entity_id
                     UNION ALL
-                    SELECT target_entity_id as entity_id, COUNT(*) as cnt 
+                    SELECT target_entity_id as entity_id, COUNT(*) as cnt
                     FROM kg_edges WHERE matter_id = %s GROUP BY target_entity_id
                 ) sub GROUP BY entity_id
             )
@@ -126,7 +110,7 @@ class PostgreSQLGraphExporter:
             AND COALESCE(ec.connections, 0) >= %s
             ORDER BY connections DESC
             LIMIT %s
-        ''', (self.matter_id, self.matter_id, self.matter_id, min_connections, limit_nodes))
+        ''', (self.matter_id, self.matter_id, self.matter_id) + type_filter_params + (min_connections, limit_nodes))
 
         entities = cursor.fetchall()
         entity_ids = {str(e['id']) for e in entities}

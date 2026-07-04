@@ -3,6 +3,7 @@ PostgreSQL database layer for the Knowledge Graph system.
 Replaces SQLite with PostgreSQL for multi-user/multi-matter support.
 """
 import psycopg2
+import psycopg2.extensions
 import psycopg2.extras
 import json
 from pathlib import Path
@@ -10,14 +11,20 @@ from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 
 from .models import Entity, Edge, Mention, Document, Event, Alias
+from . import db_pool
 
 
 class PostgreSQLDatabase:
-    """PostgreSQL database wrapper for knowledge graph storage."""
+    """PostgreSQL database wrapper for knowledge graph storage.
+
+    Connection lifecycle is managed by `db_pool`: each request thread checks
+    out a pooled connection on first `self.conn` access and returns it at
+    Flask teardown. This class holds no persistent connection state.
+    """
 
     def __init__(self, connection_string: str, matter_id: str):
         """
-        Initialize PostgreSQL connection for a specific matter.
+        Initialize PostgreSQL wrapper for a specific matter.
 
         Args:
             connection_string: PostgreSQL connection string
@@ -25,56 +32,32 @@ class PostgreSQLDatabase:
         """
         self.connection_string = connection_string
         self.matter_id = matter_id
-        self.conn = self._new_connection()
-        psycopg2.extras.register_uuid()
         self._ensure_doc_id_column()
         self._ensure_document_chunks_table()
         self._ensure_embeddings_table()
         self._ensure_layout_tables()
+        self._ensure_search_indexes()
 
-    def _new_connection(self):
-        """Create a new PostgreSQL connection with TCP keepalives."""
-        conn = psycopg2.connect(
-            self.connection_string,
-            keepalives=1,
-            keepalives_idle=60,
-            keepalives_interval=15,
-            keepalives_count=3,
-        )
-        conn.autocommit = False
-        return conn
-
-    def _ensure_connection(self):
-        """Reconnect if the connection has been closed or dropped."""
-        try:
-            if self.conn.closed:
-                raise psycopg2.InterfaceError("connection already closed")
-            cur = self.conn.cursor()
-            cur.execute("SELECT 1")
-            cur.close()
-            self.conn.rollback()
-        except (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError):
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            self.conn = self._new_connection()
+    @property
+    def conn(self) -> psycopg2.extensions.connection:
+        """Thread-local pooled connection. Automatically checked out on first
+        access; returned to the pool via db_pool.release_all() at teardown."""
+        return db_pool.checkout(self.connection_string)
 
     def _get_cursor(self):
         """Get a cursor with dict-like row factory.
 
-        Automatically recovers from aborted transaction state (e.g. after a
-        constraint violation).  Only rolls back when the connection is in the
-        INERROR state — normal in-progress transactions are left untouched.
-        Also reconnects if the connection was dropped by the server.
+        If the checked-out connection is in aborted-transaction state (e.g.
+        because a prior statement in this request raised), roll back first
+        so the caller can start clean.
         """
-        self._ensure_connection()
-        if self.conn.get_transaction_status() == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
+        conn = self.conn
+        if conn.get_transaction_status() == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
             try:
-                self.conn.rollback()
+                conn.rollback()
             except Exception:
                 pass
-        return self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     def _ensure_doc_id_column(self):
         """Add doc_id column to kg_documents if it doesn't exist (one-time migration).
@@ -208,6 +191,55 @@ class PostgreSQLDatabase:
                     error          text
                 )
             """)
+            self.conn.commit()
+        except Exception:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+
+    def _ensure_search_indexes(self):
+        """Enable pg_trgm and create GIN indexes on canonical_name / alias_text.
+
+        Without these, `ILIKE '%foo%'` in /search does a seq scan on
+        kg_entities + kg_aliases, which is fine at ~10k rows and unacceptable
+        at 100k. All statements are IF NOT EXISTS so this is idempotent and
+        cheap after first run.
+
+        CREATE EXTENSION may require ownership of the database. If it fails
+        (e.g. the app role lacks the privilege), swallow the error — the
+        indexes just won't be built and search will fall back to seq scan.
+        """
+        try:
+            cursor = self._get_cursor()
+            # Extension is DB-wide; catch its own error separately so the
+            # subsequent index-existence check doesn't roll back everything.
+            try:
+                cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                return  # No pg_trgm → can't build GIN indexes.
+
+            cursor = self._get_cursor()
+            cursor.execute("""
+                SELECT 1 FROM pg_indexes
+                WHERE indexname = 'idx_entities_name_trgm'
+            """)
+            if cursor.fetchone() is None:
+                cursor.execute("""
+                    CREATE INDEX idx_entities_name_trgm
+                    ON kg_entities USING gin (canonical_name gin_trgm_ops)
+                """)
+            cursor.execute("""
+                SELECT 1 FROM pg_indexes
+                WHERE indexname = 'idx_aliases_text_trgm'
+            """)
+            if cursor.fetchone() is None:
+                cursor.execute("""
+                    CREATE INDEX idx_aliases_text_trgm
+                    ON kg_aliases USING gin (alias_text gin_trgm_ops)
+                """)
             self.conn.commit()
         except Exception:
             try:
@@ -1020,8 +1052,9 @@ class PostgreSQLDatabase:
         self.conn.commit()
 
     def close(self):
-        """Close database connection."""
-        self.conn.close()
+        """No-op. Connections are pool-owned and returned by db_pool.release_all()
+        at request teardown; this class no longer holds a private connection."""
+        pass
 
 
 # Alias for backwards compatibility
