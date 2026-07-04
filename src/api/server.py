@@ -11,7 +11,9 @@ Usage:
 """
 import json
 import re
+import threading
 import uuid
+from collections import OrderedDict
 from difflib import SequenceMatcher
 from typing import Optional, List, Dict, Tuple
 from pathlib import Path
@@ -22,9 +24,13 @@ from google import genai
 
 # Import from core
 from ..core import KnowledgeGraph, GEMINI_API_KEY, POSTGRES_URL, get_postgres_url
+from ..core.config import gemini_http_options
+from ..core.storage import db_pool
 from ..core.storage.postgres_database import PostgreSQLDatabase
+from ..core.embeddings.vector_store import EmbeddingGenerator
 from ..core.layout.layout_service import LayoutService
 from ..core.layout.layout_repository import LayoutRepository
+from ..core.query.nl_query import NLQueryEngine
 from ..visualization.postgres_graph_exporter import PostgreSQLGraphExporter
 
 
@@ -78,35 +84,80 @@ def _apply_top_k(
 
 
 # Per-matter instance cache — avoids global singleton swapping that caused
-# data spillover when multiple matters were accessed concurrently.
-_instances: Dict[str, Dict] = {}
+# data spillover when multiple matters were accessed concurrently. Bounded
+# LRU + lock: previously a plain dict, mutated without synchronization, which
+# raced under gthread concurrency and grew without bound as new matters were
+# touched.
+_INSTANCE_CACHE_MAX = 32
+_instances: "OrderedDict[str, Dict]" = OrderedDict()
+_instances_lock = threading.Lock()
 _nl_edit_client = None
 _nl_edit_model = None
+_embedding_generator: Optional[EmbeddingGenerator] = None
+
+
+def _get_embedding_generator(api_key: str = GEMINI_API_KEY) -> EmbeddingGenerator:
+    """Process-wide singleton EmbeddingGenerator. Was previously re-instantiated
+    per request (`/similar/*` etc.), each spinning up a new Gemini client and
+    TLS handshake."""
+    global _embedding_generator
+    if _embedding_generator is None:
+        _embedding_generator = EmbeddingGenerator(api_key)
+    return _embedding_generator
 
 
 def _get_or_create_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
                           db_url: Optional[str] = None) -> Dict:
-    """Get or create KG + exporter instances for a specific matter.
+    """Get or create KG + exporter + query_engine instances for a specific matter.
 
-    Instances are cached per matter_id so concurrent requests for different
-    matters never clobber each other.
+    Instances are cached per matter_id under a lock (previously unlocked, which
+    could double-init a matter under concurrent cold-hits). Cache is a bounded
+    LRU so long-tail matter access doesn't leak memory.
     """
     global _nl_edit_client, _nl_edit_model
-    if matter_name in _instances:
-        return _instances[matter_name]
 
-    resolved_url = db_url or get_postgres_url()
-    kg = KnowledgeGraph(matter_name, api_key=api_key, db_url=resolved_url)
-    exporter = PostgreSQLGraphExporter(resolved_url, matter_name)
+    with _instances_lock:
+        entry = _instances.get(matter_name)
+        if entry is not None:
+            _instances.move_to_end(matter_name)
+            return entry
 
-    # Configure NL edit model (shared across matters)
-    if _nl_edit_client is None:
-        _nl_edit_client = genai.Client(api_key=api_key)
-        _nl_edit_model = 'gemini-2.0-flash'
+        resolved_url = db_url or get_postgres_url()
+        kg = KnowledgeGraph(matter_name, api_key=api_key, db_url=resolved_url)
+        exporter = PostgreSQLGraphExporter(resolved_url, matter_name)
+        # Cache one NLQueryEngine per matter — was previously constructed on
+        # every request in 11 endpoints, each rebuilding a Gemini client.
+        query_engine = NLQueryEngine(kg.db, kg.vector_store, api_key=api_key)
 
-    entry = {"kg": kg, "exporter": exporter, "matter_name": matter_name}
-    _instances[matter_name] = entry
-    return entry
+        if _nl_edit_client is None:
+            _nl_edit_client = genai.Client(
+                api_key=api_key, http_options=gemini_http_options()
+            )
+            _nl_edit_model = 'gemini-2.0-flash'
+
+        entry = {
+            "kg": kg,
+            "exporter": exporter,
+            "query_engine": query_engine,
+            "matter_name": matter_name,
+        }
+        _instances[matter_name] = entry
+
+        # LRU eviction: drop the oldest entry when we exceed the cap. Pool
+        # connections are shared and pool-owned, so no explicit close needed.
+        while len(_instances) > _INSTANCE_CACHE_MAX:
+            _instances.popitem(last=False)
+
+        return entry
+
+
+def _get_query_engine() -> NLQueryEngine:
+    """Fetch the cached NLQueryEngine for the current request's matter."""
+    mid = _get_matter_id()
+    entry = _instances.get(mid)
+    if entry is None:
+        raise RuntimeError("API not initialized. Call _ensure_matter() first.")
+    return entry["query_engine"]
 
 
 def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
@@ -150,6 +201,19 @@ def get_exporter() -> PostgreSQLGraphExporter:
     if entry is None:
         raise RuntimeError("API not initialized. Call _ensure_matter() first.")
     return entry["exporter"]
+
+
+# ==================== Request Teardown ====================
+
+@api.teardown_request
+def _release_pool_connections(exc):
+    """Return this thread's pooled Postgres connections to the pool. Runs after
+    every /api/* request, whether it succeeded or raised, so a connection is
+    never held past the request boundary."""
+    try:
+        db_pool.release_all()
+    except Exception:
+        pass
 
 
 # ==================== Health Check ====================
@@ -1920,7 +1984,7 @@ def api_schema():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         schema = query_engine._get_live_schema(force_refresh=True)
 
         # Also return structured data
@@ -2233,7 +2297,7 @@ def api_similar_entities(entity_id):
         # Get similar entities from vector store
         from ..core.embeddings.vector_store import EmbeddingGenerator
 
-        embedding_gen = EmbeddingGenerator()
+        embedding_gen = _get_embedding_generator()
 
         # Generate embedding for search
         search_text = f"{entity['canonical_name']} {entity['type']}"
@@ -2295,7 +2359,7 @@ def api_similar_by_name():
         exp = get_exporter()
 
         from ..core.embeddings.vector_store import EmbeddingGenerator
-        embedding_gen = EmbeddingGenerator()
+        embedding_gen = _get_embedding_generator()
 
         # Generate embedding for query
         search_text = f"{query} {entity_type}" if entity_type else query
@@ -2487,7 +2551,7 @@ def api_temporal():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
 
         if query:
             # Parse natural language temporal query
@@ -2521,7 +2585,7 @@ def api_connections():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
 
         result = query_engine.find_connections(entity1, entity2)
         return jsonify(result)
@@ -2663,7 +2727,7 @@ def api_disambiguate():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         candidates = query_engine.disambiguate_entity(name, entity_type)
 
         return jsonify({
@@ -2700,7 +2764,7 @@ def api_resolve_entities():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         resolved = query_engine.resolve_entity_references(entities)
 
         return jsonify({
@@ -2733,7 +2797,7 @@ def api_narrative_timeline():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         result = query_engine.generate_narrative_timeline(
             start_year=start_year, end_year=end_year)
 
@@ -2766,7 +2830,7 @@ def api_related_questions():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         suggestions = query_engine.suggest_related_questions(query, answer)
 
         return jsonify({
@@ -2802,7 +2866,7 @@ def api_important_entities():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         results = query_engine.get_important_entities(
             entity_types=entity_types, top_k=top_k)
 
@@ -2833,7 +2897,7 @@ def api_fact_reliability():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         results = query_engine.get_fact_reliability(top_k=top_k)
 
         return jsonify({
@@ -2864,7 +2928,7 @@ def api_inferred_relationships():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         results = query_engine.get_inferred_relationships(entity_name)
 
         return jsonify({
@@ -2902,7 +2966,7 @@ def api_resolve_entity_bayesian():
         from ..core.query.nl_query import NLQueryEngine
 
         kg = get_kg()
-        query_engine = NLQueryEngine(kg.db, kg.vector_store)
+        query_engine = _get_query_engine()
         candidates = query_engine.resolve_entity_with_confidence(
             name, entity_type=entity_type, context=context
         )

@@ -18,6 +18,19 @@ if not GEMINI_API_KEY:
     )
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 
+# Wall-clock deadline for a single Gemini HTTP call. Passed to genai.Client
+# via HttpOptions(timeout=...). Prevents a hung upstream from wedging a
+# gunicorn worker thread for the full gunicorn --timeout window.
+GEMINI_HTTP_TIMEOUT_MS = int(os.getenv("GEMINI_HTTP_TIMEOUT_MS", "30000"))
+
+
+def gemini_http_options():
+    """Standard HttpOptions for every genai.Client so all callers share the
+    same timeout. Kept as a function so google-genai is only imported when
+    Gemini is actually used (module import remains cheap)."""
+    from google.genai import types
+    return types.HttpOptions(timeout=GEMINI_HTTP_TIMEOUT_MS)
+
 # Chunking Configuration
 CHUNK_SIZE = 20000  # tokens (large context for Gemini)
 CHUNK_OVERLAP = 1000  # tokens (5% overlap for large chunks)

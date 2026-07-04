@@ -219,7 +219,8 @@ class EmbeddingGenerator:
         from google import genai
         from google.genai import types
 
-        self.client = genai.Client(api_key=api_key)
+        from ..config import gemini_http_options
+        self.client = genai.Client(api_key=api_key, http_options=gemini_http_options())
         self.types = types
         self.model_name = "gemini-embedding-001"  # Correct model name for new SDK
         print(

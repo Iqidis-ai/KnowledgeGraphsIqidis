@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from google import genai
 from json_repair import repair_json
 
-from ..config import GEMINI_API_KEY, GEMINI_MODEL
+from ..config import GEMINI_API_KEY, GEMINI_MODEL, gemini_http_options
 
 # Rate limiting settings - auto-detect tier from env
 # Paid tier: 60 req/min, Free tier: 15 req/min
@@ -221,7 +221,7 @@ Output only valid JSON array of facts:
 """
 
     def __init__(self, api_key: str = GEMINI_API_KEY, external_rate_limit: bool = False):
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(api_key=api_key, http_options=gemini_http_options())
         self.model_name = GEMINI_MODEL
         self.last_request_time = 0
         self._external_rate_limit = external_rate_limit
