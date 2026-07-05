@@ -1035,7 +1035,7 @@ class ExtractionPipeline:
                 doc_name = f"Doc_{doc_id[:8]}"
         else:
             doc_name = f"Doc_{doc_id[:8]}"
-        _resolve_or_track(
+        doc_entity_id, _doc_entity_is_new = _resolve_or_track(
             doc_name,
             lambda: Entity.create(
                 type="Document",
@@ -1050,6 +1050,16 @@ class ExtractionPipeline:
                 confidence="confirmed",
             ),
         )
+        # Mention ties the upload's entity to its kg_documents row. Without
+        # it, deleting the document can't discover (and tombstone) this
+        # entity — orphan cleanup walks mentions — so deleted files kept
+        # showing in the sidebar's "Your Files" forever.
+        all_mentions.append(Mention.create(
+            entity_id=doc_entity_id, doc_id=doc_id,
+            span_start=0, span_end=0,
+            surface_text=doc_name,
+            context_snippet="source file",
+        ))
 
         # Batch insert all at once
         if all_entities:

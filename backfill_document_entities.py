@@ -43,7 +43,8 @@ from src.core.extraction.extraction_pipeline import (
 
 
 def backfill_matter(cur, matter_id: str, dry_run: bool) -> dict:
-    stats = {"created": 0, "reclassified": 0, "tombstoned": 0}
+    stats = {"created": 0, "linked": 0, "reaped": 0,
+             "reclassified": 0, "tombstoned": 0}
 
     # ── 1. Create missing structural Document entities for uploads ──
     cur.execute(
@@ -91,6 +92,58 @@ def backfill_matter(cur, matter_id: str, dry_run: bool) -> dict:
              doc["filename"] or doc_name, "source file (backfilled)"),
         )
         existing_names.add(doc_name.lower())
+
+    # ── 1b. Link structural Document entities to their source file; reap
+    #        the ones whose file no longer exists ──
+    # Pipeline versions before 2026-07-05 created the upload's entity with
+    # no mention, so document deletion (which walks mentions) could never
+    # find and tombstone it — deleted files stayed in "Your Files" forever.
+    # Match against ALL files on the matter (not just processed ones) so an
+    # entity whose file simply hasn't processed yet is linked, not reaped.
+    cur.execute(
+        "SELECT id, filename FROM kg_documents WHERE matter_id = %s",
+        (matter_id,),
+    )
+    all_docs = cur.fetchall()
+    stem_to_doc = {}
+    for d in all_docs:
+        stem = os.path.splitext(os.path.basename(d["filename"] or ""))[0].strip().lower()
+        if stem:
+            stem_to_doc[stem] = d["id"]
+        stem_to_doc[f"doc_{str(d['id'])[:8]}".lower()] = d["id"]
+
+    cur.execute(
+        """
+        SELECT e.id, e.canonical_name FROM kg_entities e
+        WHERE e.matter_id = %s AND e.type = 'Document' AND e.status = 'active'
+          AND e.properties->>'source' = 'structural'
+          AND NOT EXISTS (SELECT 1 FROM kg_mentions m WHERE m.entity_id = e.id)
+        """,
+        (matter_id,),
+    )
+    for row in cur.fetchall():
+        target_doc = stem_to_doc.get(row["canonical_name"].strip().lower())
+        if target_doc:
+            stats["linked"] += 1
+            print(f"  = link to source file: {row['canonical_name']!r}")
+            if not dry_run:
+                cur.execute(
+                    """
+                    INSERT INTO kg_mentions (id, entity_id, doc_id, span_start,
+                                             span_end, surface_text, context_snippet)
+                    VALUES (%s, %s, %s, 0, 0, %s, %s)
+                    """,
+                    (str(uuid.uuid4()), row["id"], target_doc,
+                     row["canonical_name"], "source file (backfilled link)"),
+                )
+        else:
+            stats["reaped"] += 1
+            print(f"  - reap (source file deleted): {row['canonical_name']!r}")
+            if not dry_run:
+                cur.execute(
+                    "UPDATE kg_entities SET status = 'tombstone', updated_at = %s WHERE id = %s",
+                    (datetime.now(), row["id"]),
+                )
 
     # ── 2. Reclassify implausible Document entities → Reference ──
     cur.execute(
@@ -157,17 +210,19 @@ def main():
     else:
         matter_ids = [args.matter_id]
 
-    totals = {"created": 0, "reclassified": 0, "tombstoned": 0}
+    totals = {"created": 0, "linked": 0, "reaped": 0,
+              "reclassified": 0, "tombstoned": 0}
     for mid in matter_ids:
         print(f"\nMatter {mid}:")
         stats = backfill_matter(cur, mid, args.dry_run)
         for k in totals:
-            totals[k] += stats[k]
+            totals[k] += stats.get(k, 0)
         if not args.dry_run:
             conn.commit()
 
     mode = "DRY RUN — nothing written" if args.dry_run else "committed"
     print(f"\nDone ({mode}): {totals['created']} entities created, "
+          f"{totals['linked']} linked, {totals['reaped']} reaped, "
           f"{totals['reclassified']} reclassified, {totals['tombstoned']} tombstoned "
           f"across {len(matter_ids)} matter(s).")
     conn.close()
