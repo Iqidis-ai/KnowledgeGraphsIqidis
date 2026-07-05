@@ -89,8 +89,14 @@ _NOISE_PATTERNS = [
     re.compile(r'^\s*[\u00A9\u00AE\u2122]'),  # ©, ®, ™ prefixes
     re.compile(r'^\s*chunk[_\s]?\d+\s*$', re.IGNORECASE),
     re.compile(r'^[\W_]+$'),  # entirely punctuation/whitespace
-    re.compile(r'^(key_term|fact_type|obligation|deadline)\s*:', re.IGNORECASE),
 ]
+
+# Extraction-artifact prefixes. Junk when they leak into a Person/Document/
+# etc. name, but legitimate on Fact entities — facts are stored as
+# "obligation: …"/"key_term: …" by design, and the graph's "Show Findings"
+# toggle needs them to survive the read-side guards.
+_FACT_PREFIX_PATTERN = re.compile(
+    r'^(key_term|fact_type|obligation|deadline)\s*:', re.IGNORECASE)
 
 
 # Names made entirely of digits and id-style punctuation ("1700005183",
@@ -133,6 +139,8 @@ def _is_noise_entity_name(name: str, entity_type: Optional[str] = None) -> bool:
     for pat in _NOISE_PATTERNS:
         if pat.search(stripped):
             return True
+    if entity_type != 'Fact' and _FACT_PREFIX_PATTERN.match(stripped):
+        return True
     if (entity_type not in _NUMERIC_NAME_OK_TYPES
             and _NUMERIC_ONLY_PATTERN.match(stripped)):
         return True
