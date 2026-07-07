@@ -24,9 +24,10 @@ from google import genai
 
 # Import from core
 from ..core import KnowledgeGraph, GEMINI_API_KEY, POSTGRES_URL, get_postgres_url
-from ..core.config import gemini_http_options
+from ..core.config import gemini_http_options, APP_ENV, EnvironmentNotConfiguredError
 from ..core.extraction.extraction_pipeline import _is_noise_entity_name
 from ..core.storage import db_pool
+from .env_context import request_env
 from .response_cache import (
     cached_endpoint,
     invalidates_matter,
@@ -98,7 +99,7 @@ def _apply_top_k(
 # raced under gthread concurrency and grew without bound as new matters were
 # touched.
 _INSTANCE_CACHE_MAX = 32
-_instances: "OrderedDict[str, Dict]" = OrderedDict()
+_instances: "OrderedDict[tuple, Dict]" = OrderedDict()
 _instances_lock = threading.Lock()
 _nl_edit_client = None
 _nl_edit_model = None
@@ -115,23 +116,38 @@ def _get_embedding_generator(api_key: str = GEMINI_API_KEY) -> EmbeddingGenerato
     return _embedding_generator
 
 
+def _instance_key(matter_name: str, env: Optional[str]) -> tuple:
+    """Cache key for per-matter instances. The environment is part of the
+    key so the same matter id can never be served by an instance connected
+    to a different environment's database (first-caller-wins bugs)."""
+    return (env or APP_ENV, matter_name)
+
+
 def _get_or_create_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
-                          db_url: Optional[str] = None) -> Dict:
+                          db_url: Optional[str] = None,
+                          env: Optional[str] = None) -> Dict:
     """Get or create KG + exporter + query_engine instances for a specific matter.
 
-    Instances are cached per matter_id under a lock (previously unlocked, which
-    could double-init a matter under concurrent cold-hits). Cache is a bounded
-    LRU so long-tail matter access doesn't leak memory.
+    Instances are cached per (env, matter_id) under a lock (previously
+    unlocked, which could double-init a matter under concurrent cold-hits).
+    Cache is a bounded LRU so long-tail matter access doesn't leak memory.
+
+    `env` selects which environment's database backs the instance; when not
+    passed it is resolved from the request (query param / X-Iqidis-Env
+    header), falling back to the process-wide APP_ENV default.
     """
     global _nl_edit_client, _nl_edit_model
 
+    env = request_env(env)
+    key = _instance_key(matter_name, env)
+
     with _instances_lock:
-        entry = _instances.get(matter_name)
+        entry = _instances.get(key)
         if entry is not None:
-            _instances.move_to_end(matter_name)
+            _instances.move_to_end(key)
             return entry
 
-        resolved_url = db_url or get_postgres_url()
+        resolved_url = db_url or get_postgres_url(env)
         kg = KnowledgeGraph(matter_name, api_key=api_key, db_url=resolved_url)
         exporter = PostgreSQLGraphExporter(resolved_url, matter_name)
         # Cache one NLQueryEngine per matter — was previously constructed on
@@ -150,7 +166,7 @@ def _get_or_create_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
             "query_engine": query_engine,
             "matter_name": matter_name,
         }
-        _instances[matter_name] = entry
+        _instances[key] = entry
 
         # LRU eviction: drop the oldest entry when we exceed the cap. Pool
         # connections are shared and pool-owned, so no explicit close needed.
@@ -163,16 +179,16 @@ def _get_or_create_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
 def _get_query_engine() -> NLQueryEngine:
     """Fetch the cached NLQueryEngine for the current request's matter."""
     mid = _get_matter_id()
-    entry = _instances.get(mid)
+    entry = _instances.get(_instance_key(mid, request_env()))
     if entry is None:
         raise RuntimeError("API not initialized. Call _ensure_matter() first.")
     return entry["query_engine"]
 
 
 def init_matter(matter_name: str, api_key: str = GEMINI_API_KEY,
-                db_url: Optional[str] = None):
+                db_url: Optional[str] = None, env: Optional[str] = None):
     """Initialize the API for a specific matter (backwards-compatible wrapper)."""
-    _get_or_create_matter(matter_name, api_key, db_url)
+    _get_or_create_matter(matter_name, api_key, db_url, env)
 
 
 def _ensure_matter(matter_id: Optional[str] = None):
@@ -197,7 +213,7 @@ def _get_matter_id() -> str:
 def get_kg() -> KnowledgeGraph:
     """Get the KnowledgeGraph instance for the current request's matter."""
     mid = _get_matter_id()
-    entry = _instances.get(mid)
+    entry = _instances.get(_instance_key(mid, request_env()))
     if entry is None:
         raise RuntimeError("API not initialized. Call _ensure_matter() first.")
     return entry["kg"]
@@ -206,10 +222,20 @@ def get_kg() -> KnowledgeGraph:
 def get_exporter() -> PostgreSQLGraphExporter:
     """Get the PostgreSQLGraphExporter instance for the current request's matter."""
     mid = _get_matter_id()
-    entry = _instances.get(mid)
+    entry = _instances.get(_instance_key(mid, request_env()))
     if entry is None:
         raise RuntimeError("API not initialized. Call _ensure_matter() first.")
     return entry["exporter"]
+
+
+# ==================== Error Handling ====================
+
+@api.errorhandler(EnvironmentNotConfiguredError)
+def _handle_unconfigured_env(exc):
+    """A caller asked for an environment this server has no database URL
+    for. Client-side misconfiguration (or a missing .env entry) — answer
+    with a clear 400 instead of an opaque HTML 500."""
+    return jsonify({'error': str(exc)}), 400
 
 
 # ==================== Request Teardown ====================
@@ -257,8 +283,10 @@ def api_extract_from_iqidis():
 
     Optional request fields:
         db_url  – explicit PostgreSQL connection string (overrides env default)
-        env     – environment name ("development", "staging", "production")
-                  to select the matching *_POSTGRES_URL from .env
+        env     – environment name ("development", "preview", "staging",
+                  "production") to select the matching *_POSTGRES_URL from
+                  .env. Also accepted as an `env` query param or
+                  `X-Iqidis-Env` header (like every other endpoint).
     """
     try:
         data = request.get_json() or {}
@@ -266,11 +294,11 @@ def api_extract_from_iqidis():
         documents = data.get('documents', [])
         options = data.get('options', {})
 
-        # Resolve database URL: explicit db_url → env name → default
+        # Resolve database URL: explicit db_url → env (body/query/header) → default
+        env_name = request_env(data.get('env'))
         db_url = data.get('db_url')
-        if not db_url:
-            env_name = data.get('env')
-            db_url = get_postgres_url(env_name) if env_name else None
+        if not db_url and env_name:
+            db_url = get_postgres_url(env_name)
 
         if not matter_id:
             return jsonify({'error': 'matter_id is required'}), 400
@@ -282,7 +310,7 @@ def api_extract_from_iqidis():
             matter_id, documents, options, GEMINI_API_KEY,
             verbose=True, db_url=db_url
         )
-        init_matter(matter_id, db_url=db_url)
+        init_matter(matter_id, db_url=db_url, env=env_name)
         return jsonify(result)
     except Exception as e:
         import traceback
@@ -312,10 +340,12 @@ def api_delete_document(doc_id: str):
         # Reuse cached KG instance if already loaded; otherwise instantiate
         # the DB layer directly without booting the heavy VectorStore (we
         # don't need it for deletion).
-        if matter_id in _instances:
-            db = _instances[matter_id]['kg'].db
+        env = request_env()
+        key = _instance_key(matter_id, env)
+        if key in _instances:
+            db = _instances[key]['kg'].db
         else:
-            db = PostgreSQLDatabase(get_postgres_url(), matter_id)
+            db = PostgreSQLDatabase(get_postgres_url(env), matter_id)
 
         db.delete_document(doc_id)
 
@@ -355,9 +385,11 @@ def api_sync_documents():
         if not matter_id:
             return jsonify({'error': 'matter_id is required'}), 400
 
-        db_url = data.get('db_url') or get_postgres_url()
-        if matter_id in _instances:
-            db = _instances[matter_id]['kg'].db
+        env = request_env(data.get('env'))
+        db_url = data.get('db_url') or get_postgres_url(env)
+        key = _instance_key(matter_id, env)
+        if key in _instances:
+            db = _instances[key]['kg'].db
         else:
             db = PostgreSQLDatabase(db_url, matter_id)
 
@@ -435,7 +467,8 @@ def api_layout_status():
 	matter_id = request.args.get('matter_id')
 	if not matter_id:
 		return jsonify({"error": "matter_id required"}), 400
-	svc = LayoutService(matter_id)
+	svc = LayoutService(
+		matter_id, db=PostgreSQLDatabase(get_postgres_url(request_env()), matter_id))
 	meta = svc.status()
 	if meta is None:
 		return jsonify({"error": "not_found"}), 404
@@ -449,7 +482,8 @@ def api_layout_compute():
 	matter_id = request.args.get('matter_id')
 	if not matter_id:
 		return jsonify({"error": "matter_id required"}), 400
-	svc = LayoutService(matter_id)
+	svc = LayoutService(
+		matter_id, db=PostgreSQLDatabase(get_postgres_url(request_env()), matter_id))
 	meta = svc.trigger_compute()
 	if meta and meta.get("computed_at"):
 		meta["computed_at"] = meta["computed_at"].isoformat()
@@ -488,10 +522,12 @@ def api_graph_viewport():
 	# Use cached KG db if already initialised; otherwise open a lightweight
 	# PostgreSQLDatabase directly (avoids VectorStore UUID validation errors
 	# for test matter_ids and makes the viewport endpoint self-contained).
-	if matter_id in _instances:
-		db = _instances[matter_id]['kg'].db
+	env = request_env()
+	key = _instance_key(matter_id, env)
+	if key in _instances:
+		db = _instances[key]['kg'].db
 	else:
-		db = PostgreSQLDatabase(get_postgres_url(), matter_id)
+		db = PostgreSQLDatabase(get_postgres_url(env), matter_id)
 	repo = LayoutRepository(db, matter_id)
 	rows = repo.query_viewport(x_min, x_max, y_min, y_max, min_importance, limit)
 

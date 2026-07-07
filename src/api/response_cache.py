@@ -22,6 +22,8 @@ from typing import Any, Callable, Iterable, Optional
 from cachetools import TTLCache
 from flask import Response, request
 
+from .env_context import request_env
+
 # Cache sizing: 1024 entries × ~50KB avg JSON = ~50MB per worker cap. TTL
 # default is 120s — short enough that stale data windows are small, long
 # enough to absorb bursts.
@@ -83,7 +85,9 @@ def _cache_key(
     path_items = tuple(sorted((path_kwargs or {}).items()))
     extra_items = tuple(sorted(extra_args)) if extra_args else ()
     version = _matter_version(matter_id)
-    return (endpoint, matter_id, version, args_items, path_items, extra_items)
+    # request_env() in the key: the same matter_id queried against two
+    # different environments must never share a cached response.
+    return (endpoint, matter_id, version, request_env(), args_items, path_items, extra_items)
 
 
 def invalidates_matter(matter_id_arg: str = "matter_id"):
@@ -205,7 +209,7 @@ def get_or_none(endpoint: str, matter_id: Optional[str], extra_key: tuple) -> An
     """Manual cache lookup for endpoints that can't use the decorator (e.g.
     POST /query where the key is derived from the request body, not args)."""
     version = _matter_version(matter_id)
-    key = (endpoint, matter_id, version, (), (), extra_key)
+    key = (endpoint, matter_id, version, request_env(), (), (), extra_key)
     with _cache_lock:
         hit = _cache.get(key)
     if hit is not None:
@@ -220,7 +224,7 @@ def set_manual(endpoint: str, matter_id: Optional[str], extra_key: tuple, value:
     if not _is_cacheable(value):
         return
     version = _matter_version(matter_id)
-    key = (endpoint, matter_id, version, (), (), extra_key)
+    key = (endpoint, matter_id, version, request_env(), (), (), extra_key)
     with _cache_lock:
         _cache[key] = value
 

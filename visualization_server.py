@@ -35,7 +35,7 @@ def create_visualization_app(matter_name: Optional[str] = None, api_key: str = G
         Configured Flask application with static file serving and API
     """
     app = Flask(__name__, static_folder='visualization')
-    CORS(app, origins=['*'], allow_headers=['Content-Type', 'X-Matter-Id'])
+    CORS(app, origins=['*'], allow_headers=['Content-Type', 'X-Matter-Id', 'X-Iqidis-Env'])
 
     # Initialize the API for this matter (skip if None - for Iqidis mode)
     if matter_name:

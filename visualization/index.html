@@ -2081,21 +2081,23 @@
       // Configuration
       const API_BASE = ""; // Same origin
 
-      // Iqidis: inject matter_id from URL into all API requests
+      // Iqidis: inject matter_id (and the caller's environment) from the
+      // page URL into all API requests, so this page works against any
+      // {env}_POSTGRES_URL the backend serves.
       (function () {
         const params = new URLSearchParams(window.location.search);
         const matterId = params.get("matter_id");
-        if (!matterId) return;
+        const envName = params.get("env");
+        if (!matterId && !envName) return;
         const origFetch = window.fetch;
         window.fetch = function (url, opts) {
           if (typeof url === "string" && url.includes("/api/")) {
-            url =
-              url +
-              (url.includes("?") ? "&" : "?") +
-              "matter_id=" +
-              encodeURIComponent(matterId);
+            const extra = [];
+            if (matterId) extra.push("matter_id=" + encodeURIComponent(matterId));
+            if (envName) extra.push("env=" + encodeURIComponent(envName));
+            url = url + (url.includes("?") ? "&" : "?") + extra.join("&");
           }
-          if (opts && opts.body && typeof opts.body === "string") {
+          if (matterId && opts && opts.body && typeof opts.body === "string") {
             try {
               const j = JSON.parse(opts.body);
               if (!j.matter_id) j.matter_id = matterId;

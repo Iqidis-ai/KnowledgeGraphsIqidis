@@ -58,6 +58,14 @@ POSTGRES_URL = (
 )
 
 
+class EnvironmentNotConfiguredError(ValueError):
+    """A caller requested an environment whose {env}_POSTGRES_URL is unset.
+
+    Raised instead of silently falling back to the default database, which
+    would read/write the wrong environment's data. The API layer maps this
+    to a 400 response."""
+
+
 def get_postgres_url(env: Optional[str] = None) -> str:
     """Return the PostgreSQL URL for the given environment.
 
@@ -66,12 +74,19 @@ def get_postgres_url(env: Optional[str] = None) -> str:
         2. APP_ENV env var          → look up {APP_ENV}_POSTGRES_URL
         3. Generic POSTGRES_URL / DATABASE_URL fallback
 
-    Raises ValueError if no URL can be resolved.
+    Raises ValueError if no URL can be resolved, or if an explicitly
+    requested *env* has no configured URL — falling back silently would
+    read/write the wrong environment's database, which is worse than
+    failing the request.
     """
     if env:
         url = os.getenv(f"{env}_POSTGRES_URL") or _POSTGRES_URLS.get(env)
         if url:
             return url
+        raise EnvironmentNotConfiguredError(
+            f"Environment '{env}' was requested but {env}_POSTGRES_URL "
+            "is not configured in .env"
+        )
     # Fall back to module-level default
     if POSTGRES_URL:
         return POSTGRES_URL
