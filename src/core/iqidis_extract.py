@@ -25,6 +25,7 @@ from .iqidis_data import get_matter_documents, get_matter_by_id
 from .s3_fetcher import download_from_s3
 from .parsing.document_parser import DocumentParser, ParsedDocument
 from .knowledge_graph import KnowledgeGraph
+from .storage import db_pool
 
 # Auto-detect tier for download parallelism
 _IS_PAID_TIER = os.getenv(
@@ -325,6 +326,10 @@ def extract_from_frontend_payload(
                         f"  ✗ [C{consumer_id}] Failed extraction for {file_name}: {e}")
         finally:
             kg_local.close()
+            # Background thread — Flask teardown never runs here, so return
+            # this thread's pooled connection or it leaks until the pool is
+            # exhausted.
+            db_pool.release_all()
 
     # Start consumer threads
     consumer_threads = []
@@ -448,22 +453,28 @@ def extract_from_iqidis_matter(
 
     def _extraction_consumer():
         """Consume parsed documents and extract KG (sequential for DB safety)."""
-        while True:
-            item = doc_queue.get()
-            if item is SENTINEL:
-                break
-            parsed, original_name = item
-            try:
-                kg.extraction_pipeline.process_parsed_document(
-                    parsed, skip_if_exists=True)
-                with result_lock:
-                    result["documents_processed"] += 1
-                _log(f"  ✓ Extracted from {original_name}")
-            except Exception as e:
-                with result_lock:
-                    result["documents_failed"] += 1
-                    result["errors"].append(f"{original_name}: {str(e)}")
-                _log(f"  ✗ Failed extraction for {original_name}: {e}")
+        try:
+            while True:
+                item = doc_queue.get()
+                if item is SENTINEL:
+                    break
+                parsed, original_name = item
+                try:
+                    kg.extraction_pipeline.process_parsed_document(
+                        parsed, skip_if_exists=True)
+                    with result_lock:
+                        result["documents_processed"] += 1
+                    _log(f"  ✓ Extracted from {original_name}")
+                except Exception as e:
+                    with result_lock:
+                        result["documents_failed"] += 1
+                        result["errors"].append(f"{original_name}: {str(e)}")
+                    _log(f"  ✗ Failed extraction for {original_name}: {e}")
+        finally:
+            # Background thread — Flask teardown never runs here, so return
+            # this thread's pooled connection or it leaks until the pool is
+            # exhausted.
+            db_pool.release_all()
 
     # Start extraction consumer thread
     consumer_thread = threading.Thread(

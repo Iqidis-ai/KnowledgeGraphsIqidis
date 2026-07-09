@@ -14,6 +14,7 @@ import threading
 from typing import Dict, Optional
 
 from src.core import get_postgres_url
+from src.core.storage import db_pool
 from src.core.storage.postgres_database import PostgreSQLDatabase
 from src.core.layout.forceatlas2 import compute_layout
 from src.core.layout.layout_repository import LayoutRepository
@@ -70,12 +71,21 @@ class LayoutService:
 
 		self._repo.set_status("computing", progress=0.0)
 		thread = threading.Thread(
-			target=self._compute_blocking,
+			target=self._compute_blocking_threaded,
 			name=f"layout-{self._matter_id}",
 			daemon=True,
 		)
 		thread.start()
 		return self._repo.get_meta()
+
+	def _compute_blocking_threaded(self) -> None:
+		"""Background-thread entry point for compute. Flask's teardown never
+		runs on this thread, so return the thread's pooled connection here or
+		it leaks until the pool is exhausted."""
+		try:
+			self._compute_blocking()
+		finally:
+			db_pool.release_all()
 
 	def _compute_blocking(self) -> None:
 		lock = _lock_for(self._matter_id)
