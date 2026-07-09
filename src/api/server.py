@@ -37,6 +37,7 @@ from .response_cache import (
     get_stats as _cache_stats,
 )
 from ..core.storage.postgres_database import PostgreSQLDatabase
+from ..core.storage.extraction_job_repository import ExtractionJobRepository
 from ..core.embeddings.vector_store import EmbeddingGenerator
 from ..core.layout.layout_service import LayoutService
 from ..core.layout.layout_repository import LayoutRepository
@@ -287,6 +288,12 @@ def api_extract_from_iqidis():
                   "production") to select the matching *_POSTGRES_URL from
                   .env. Also accepted as an `env` query param or
                   `X-Iqidis-Env` header (like every other endpoint).
+        async   – when truthy, return 202 + a job_id immediately and run the
+                  extraction on a background thread. Poll
+                  GET /extract-from-iqidis/status?job_id=... (with the same
+                  env/X-Iqidis-Env) for `state` and, once done, `result`.
+                  Omitted/falsy keeps the original synchronous behavior:
+                  block until extraction finishes, return the full result body.
     """
     try:
         data = request.get_json() or {}
@@ -306,6 +313,59 @@ def api_extract_from_iqidis():
             return jsonify({'error': 'documents array is required'}), 400
 
         from ..core.iqidis_extract import extract_from_frontend_payload
+
+        # Effective connection string for job bookkeeping (extraction itself
+        # resolves the same way internally when db_url is None).
+        job_db_url = db_url or get_postgres_url(env_name)
+
+        if data.get('async'):
+            # Async path: persist a queued job, hand the work to a background
+            # thread, and return 202 immediately so the request slot frees up
+            # instead of being held for the whole extraction.
+            job_id = str(uuid.uuid4())
+            ExtractionJobRepository(
+                PostgreSQLDatabase(job_db_url, matter_id)).create(job_id, matter_id)
+
+            def _run_extraction_job():
+                # Background thread: no Flask request/teardown here, so resolve
+                # env/db_url from the captured values and return this thread's
+                # pooled connections in the finally or they leak.
+                repo = ExtractionJobRepository(
+                    PostgreSQLDatabase(job_db_url, matter_id))
+                try:
+                    repo.set_running(job_id)
+                    result = extract_from_frontend_payload(
+                        matter_id, documents, options, GEMINI_API_KEY,
+                        verbose=True, db_url=db_url
+                    )
+                    init_matter(matter_id, db_url=db_url, env=env_name)
+                    repo.set_done(job_id, result)
+                    # Extraction finished after the 202 already fired the
+                    # decorator's invalidation, so bump the cache again now
+                    # that the new graph data actually exists.
+                    invalidate_matter(matter_id)
+                except Exception as exc:  # noqa: BLE001
+                    import traceback
+                    traceback.print_exc()
+                    try:
+                        repo.set_failed(job_id, str(exc))
+                    except Exception:
+                        pass
+                finally:
+                    db_pool.release_all()
+
+            threading.Thread(
+                target=_run_extraction_job,
+                name=f"extract-{matter_id}",
+                daemon=True,
+            ).start()
+            return jsonify({
+                'job_id': job_id,
+                'state': 'queued',
+                'matter_id': matter_id,
+            }), 202
+
+        # Synchronous path (unchanged contract): block until done, return result.
         result = extract_from_frontend_payload(
             matter_id, documents, options, GEMINI_API_KEY,
             verbose=True, db_url=db_url
@@ -316,6 +376,27 @@ def api_extract_from_iqidis():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+@api.route('/extract-from-iqidis/status', methods=['GET'])
+def api_extract_status():
+    """Status of an async extraction started with `{"async": true}`.
+
+    Query params: job_id (required), plus the same env/X-Iqidis-Env used to
+    start the job (the job row lives in that environment's database).
+
+    Returns: { job_id, matter_id, state, result, error, created_at, updated_at }
+    where state is queued | running | done | failed. `result` is populated
+    only once state == 'done'.
+    """
+    job_id = request.args.get('job_id')
+    if not job_id:
+        return jsonify({'error': 'job_id required'}), 400
+    db = PostgreSQLDatabase(get_postgres_url(request_env()), matter_id='')
+    job = ExtractionJobRepository(db).get(job_id)
+    if job is None:
+        return jsonify({'error': 'not_found'}), 404
+    return jsonify(job)
 
 
 @api.route('/document/<doc_id>', methods=['DELETE'])

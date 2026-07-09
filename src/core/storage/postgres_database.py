@@ -36,6 +36,7 @@ class PostgreSQLDatabase:
         self._ensure_document_chunks_table()
         self._ensure_embeddings_table()
         self._ensure_layout_tables()
+        self._ensure_extraction_jobs_table()
         self._ensure_search_indexes()
 
     @property
@@ -190,6 +191,34 @@ class PostgreSQLDatabase:
                     progress       real,
                     error          text
                 )
+            """)
+            self.conn.commit()
+        except Exception:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+
+    def _ensure_extraction_jobs_table(self):
+        """Create extraction_jobs if missing. Backs the async /extract path:
+        job state lives in Postgres (not per-worker memory) so any gunicorn
+        worker can serve a status poll regardless of which worker started it."""
+        try:
+            cursor = self._get_cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS extraction_jobs (
+                    job_id      text PRIMARY KEY,
+                    matter_id   text NOT NULL,
+                    state       text NOT NULL,
+                    result      jsonb,
+                    error       text,
+                    created_at  timestamptz NOT NULL DEFAULT now(),
+                    updated_at  timestamptz NOT NULL DEFAULT now()
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_extraction_jobs_matter
+                ON extraction_jobs (matter_id, created_at DESC)
             """)
             self.conn.commit()
         except Exception:
