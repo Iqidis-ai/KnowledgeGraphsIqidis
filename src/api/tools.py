@@ -13,8 +13,9 @@ server). Design rules, which every endpoint here follows:
   so the caller knows when there is more.
 - Matter comes from the X-Matter-Id header, set by the trusted caller
   (Next.js resolves it from the chat). The model never supplies it.
-- Auth: `Authorization: Bearer <KG_TOOLS_TOKEN>`. If KG_TOOLS_TOKEN is not
-  configured the endpoints fail closed (503).
+- Auth: enabled by default with no token, like the rest of the KG API. If
+  KG_TOOLS_TOKEN is configured, `Authorization: Bearer <KG_TOOLS_TOKEN>` is
+  required. Set KG_TOOLS_ENABLED=false to turn the endpoints off (503).
 """
 import hmac
 import json
@@ -70,13 +71,14 @@ class ToolError(Exception):
 
 @tools.before_request
 def _authenticate_and_scope():
+    if os.getenv('KG_TOOLS_ENABLED', 'true').strip().lower() in ('0', 'false', 'no', 'off'):
+        raise ToolError(503, 'tools_disabled', 'KG tools are disabled on the KG server (KG_TOOLS_ENABLED)')
     expected = os.getenv('KG_TOOLS_TOKEN')
-    if not expected:
-        raise ToolError(503, 'tools_disabled', 'KG_TOOLS_TOKEN is not configured on the KG server')
-    header = request.headers.get('Authorization', '')
-    token = header[7:] if header.startswith('Bearer ') else ''
-    if not hmac.compare_digest(token.encode(), expected.encode()):
-        raise ToolError(401, 'unauthorized', 'missing or invalid bearer token')
+    if expected:
+        header = request.headers.get('Authorization', '')
+        token = header[7:] if header.startswith('Bearer ') else ''
+        if not hmac.compare_digest(token.encode(), expected.encode()):
+            raise ToolError(401, 'unauthorized', 'missing or invalid bearer token')
 
     matter_id = request.headers.get('X-Matter-Id') or request.args.get('matter_id')
     if not matter_id:

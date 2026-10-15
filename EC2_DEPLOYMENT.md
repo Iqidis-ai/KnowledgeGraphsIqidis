@@ -215,10 +215,15 @@ sudo apt install -y amazon-cloudwatch-agent
     daily
     rotate 14
     compress
+    delaycompress
     missingok
     notifempty
+    create 0644 ubuntu ubuntu
+    sharedscripts
     postrotate
-        systemctl reload kg-backend > /dev/null 2>&1 || true
+        # USR1 makes the gunicorn master reopen its log files (workers keep running).
+        # Don't use `systemctl reload` here: that's HUP, which replaces every worker daily.
+        systemctl kill -s USR1 --kill-whom=main kg-backend > /dev/null 2>&1 || true
     endscript
 }
 ```
