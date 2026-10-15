@@ -3231,5 +3231,7 @@ def create_app(matter_name: str, api_key: str = GEMINI_API_KEY) -> Flask:
 
     # Register API blueprint
     app.register_blueprint(api)
+    from .tools import tools
+    app.register_blueprint(tools)
 
     return app

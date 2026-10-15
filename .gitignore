@@ -66,3 +66,8 @@ htmlcov/
 
 # Local deployment notes (not for repo)
 deploy/
+
+# KG tool bench: run outputs and matter query sets/profiles hold client-matter content
+evals/kg_tool_bench/results/
+evals/kg_tool_bench/*.queries.json
+evals/kg_tool_bench/*.profile.md

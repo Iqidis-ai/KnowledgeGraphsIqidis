@@ -43,6 +43,8 @@ def create_visualization_app(matter_name: Optional[str] = None, api_key: str = G
 
     # Register API blueprint
     app.register_blueprint(api)
+    from src.api.tools import tools
+    app.register_blueprint(tools)
 
     # Static file routes
     @app.route('/')
