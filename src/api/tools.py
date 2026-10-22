@@ -1111,3 +1111,8 @@ def tool_document(document_id):
         'relations_total': len(relations),
         'truncated': len(ent_rows) > limit or len(fact_list) > limit or len(relations) > limit,
     })
+
+
+# Whole-graph SQLite export (/api/tools/export) lives in its own module and
+# registers on this blueprint.
+from . import graph_export  # noqa: E402,F401
