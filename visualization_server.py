@@ -12,7 +12,6 @@ Usage:
 """
 from src.core.config import GEMINI_API_KEY
 from src.api.server import api, init_matter
-from flask_cors import CORS
 from flask import Flask, send_from_directory
 import argparse
 import sys
@@ -35,7 +34,8 @@ def create_visualization_app(matter_name: Optional[str] = None, api_key: str = G
         Configured Flask application with static file serving and API
     """
     app = Flask(__name__, static_folder='visualization')
-    CORS(app, origins=['*'], allow_headers=['Content-Type', 'X-Matter-Id', 'X-Iqidis-Env'])
+    # No CORS: only trusted servers call the API (with KG_API_SECRET); browsers
+    # never call it cross-origin.
 
     # Initialize the API for this matter (skip if None - for Iqidis mode)
     if matter_name:

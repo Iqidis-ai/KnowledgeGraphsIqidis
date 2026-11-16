@@ -6,10 +6,13 @@ from src.api.server import api as api_blueprint
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    monkeypatch.setenv("KG_API_SECRET", "test-secret")
     app = Flask(__name__)
     app.register_blueprint(api_blueprint)
-    return app.test_client()
+    c = app.test_client()
+    c.environ_base["HTTP_AUTHORIZATION"] = "Bearer test-secret"
+    return c
 
 
 def test_status_returns_404_for_unknown_matter(client):

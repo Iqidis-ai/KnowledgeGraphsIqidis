@@ -18,7 +18,6 @@ from difflib import SequenceMatcher
 from typing import Optional, List, Dict, Tuple
 from pathlib import Path
 from flask import Flask, Blueprint, jsonify, request
-from flask_cors import CORS
 
 from google import genai
 
@@ -43,10 +42,13 @@ from ..core.layout.layout_service import LayoutService
 from ..core.layout.layout_repository import LayoutRepository
 from ..core.query.nl_query import NLQueryEngine
 from ..visualization.postgres_graph_exporter import PostgreSQLGraphExporter
+from .auth import require_api_secret
 
 
 # Create API blueprint
 api = Blueprint('api', __name__, url_prefix='/api')
+# Every /api route requires the shared server secret (see auth.py).
+api.before_request(require_api_secret)
 
 # Default per-type node caps for the type_quota top-K strategy.
 # Tuned for legal contract graphs: dense entity types (Persons, Orgs, Money)
@@ -3224,7 +3226,6 @@ def create_app(matter_name: str, api_key: str = GEMINI_API_KEY) -> Flask:
         Configured Flask application
     """
     app = Flask(__name__)
-    CORS(app)
 
     # Initialize matter
     init_matter(matter_name, api_key)
